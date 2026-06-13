@@ -1,0 +1,6 @@
+pnpm-lock.yaml
+easyeda-bridge-extension.zip
+.agent-state.json
+dist/
+coverage/
+node_modules/

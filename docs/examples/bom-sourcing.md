@@ -1,0 +1,80 @@
+# BOM Sourcing & Validation Example Workflow
+
+This guide demonstrates how to generate a Bill of Materials (BOM) from your EasyEDA Pro project, validate it against the LCSC database, and query real-time stock levels and pricing.
+
+---
+
+## Steps
+
+### 1. Generate the BOM
+
+Run the BOM tool to extract all schematic symbols, values, footprints, and associated LCSC part numbers from the active project sheet:
+
+**MCP Call**:
+`easyeda_bom_generate`
+
+**Response Output**:
+
+```json
+{
+  "total": 3,
+  "parts": [
+    { "ref": "U1", "val": "ESP32-WROOM-32E", "lcsc": "C701342" },
+    { "ref": "C1", "val": "10uF", "lcsc": "C19702" },
+    { "ref": "R1", "val": "10k", "lcsc": "C25804" }
+  ]
+}
+```
+
+---
+
+### 2. Validate BOM Against LCSC Inventory
+
+Check if the LCSC parts specified in your design are active, in stock, or obsolete:
+
+**MCP Call**:
+`easyeda_bom_validate` with the generated parts list.
+
+**Validation Response**:
+
+```json
+{
+  "isValid": true,
+  "obsoleteParts": [],
+  "lowStockParts": [
+    {
+      "lcsc": "C701342",
+      "stock": 12,
+      "message": "Low stock warning: only 12 units available at LCSC."
+    }
+  ]
+}
+```
+
+---
+
+### 3. Query Real-Time Pricing and Sourcing
+
+Fetch current pricing tiers for assembly budgeting:
+
+**MCP Call**:
+`easyeda_bom_sourcing` with LCSC part numbers.
+
+**Sourcing Output**:
+
+```json
+{
+  "parts": {
+    "C19702": {
+      "stock": 45000,
+      "priceTiers": [
+        { "minQty": 10, "price": 0.012 },
+        { "minQty": 100, "price": 0.008 }
+      ],
+      "status": "active"
+    }
+  }
+}
+```
+
+If a part is out of stock, the assistant can query `lib_recommend_part` or search LCSC using keywords to propose pin-compatible alternates.

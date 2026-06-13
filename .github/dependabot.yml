@@ -1,0 +1,4 @@
+version: 2
+# GitHub Actions updates are managed by Renovate (see renovate.json)
+# Only npm updates are handled here for complementary coverage.
+updates: []

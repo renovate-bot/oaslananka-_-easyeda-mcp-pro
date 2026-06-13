@@ -1,0 +1,75 @@
+import { type z } from 'zod';
+import { type ToolProfile } from '../config/profiles.js';
+
+import { type LcscClient } from '../vendors/lcsc/client.js';
+import { type JlcpcbClient } from '../vendors/jlcpcb/client.js';
+import { type MouserClient } from '../vendors/mouser/client.js';
+import { type DigiKeyClient } from '../vendors/digikey/client.js';
+
+export interface ToolDefinition<
+  TInput extends z.ZodType = z.ZodType,
+  TOutput extends z.ZodType = z.ZodType,
+> {
+  /** Unique tool name used in MCP protocol */
+  name: string;
+  /** Human-readable title */
+  title: string;
+  /** Long description explaining purpose, inputs, and effects */
+  description: string;
+  /** Minimum profile required to enable this tool */
+  profile: ToolProfile;
+  /** Source(s) used to derive the tool's schema and behaviour */
+  evidence: Array<
+    | 'official-docs'
+    | 'pro-api-types'
+    | 'runtime-probe'
+    | 'official-skill'
+    | 'source-format'
+    | 'vendor-api-docs'
+    | 'inferred'
+  >;
+  /** Safety risk level — gates like confirmWrite trigger at 'medium' and above */
+  risk: 'low' | 'medium' | 'high';
+  /** Whether the tool can mutate project/design state.
+   *  When true the runtime MUST require an explicit acknowledgment before execution. */
+  confirmWrite: boolean;
+  /** Logical group for UI organisation and documentation (e.g. 'schematic', 'bom', 'board') */
+  group: string;
+  /** Schema version string — bump when breaking changes are made to input/output schemas */
+  version: string;
+  /** MCP protocol annotation hints */
+  annotations: {
+    readOnlyHint?: boolean;
+    destructiveHint?: boolean;
+    idempotentHint?: boolean;
+    openWorldHint?: boolean;
+  };
+  inputSchema: TInput;
+  outputSchema: TOutput;
+  handler: (context: ToolContext, input: z.infer<TInput>) => Promise<z.infer<TOutput>>;
+}
+
+export interface ToolContext {
+  profile: ToolProfile;
+  bridge: {
+    connected: boolean;
+    call: <TParams, TResult>(
+      method: string,
+      params?: TParams,
+      opts?: { timeoutMs?: number; traceparent?: string },
+    ) => Promise<TResult>;
+  };
+  config: {
+    bridgeTimeoutMs: number;
+    artifactDir: string;
+    bridgeHost: string;
+    bridgePort: number;
+    [key: string]: unknown;
+  };
+  vendors: {
+    lcsc: LcscClient | null;
+    jlcpcb: JlcpcbClient | null;
+    mouser: MouserClient | null;
+    digikey: DigiKeyClient | null;
+  };
+}

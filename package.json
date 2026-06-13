@@ -1,0 +1,95 @@
+{
+  "name": "easyeda-mcp-pro",
+  "version": "0.4.0",
+  "mcpName": "io.github.oaslananka/easyeda-mcp-pro",
+  "description": "Production-grade MCP server for EasyEDA Pro: safe PCB design inspection, BOM sourcing, manufacturing export, and AI-assisted hardware review.",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "easyeda",
+    "easyeda-pro",
+    "pcb",
+    "eda",
+    "jlcpcb",
+    "lcsc",
+    "hardware",
+    "schematic",
+    "bom"
+  ],
+  "author": "oaslananka",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/oaslananka/easyeda-mcp-pro.git"
+  },
+  "bugs": {
+    "url": "https://github.com/oaslananka/easyeda-mcp-pro/issues"
+  },
+  "homepage": "https://github.com/oaslananka/easyeda-mcp-pro#readme",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "easyeda-mcp-pro": "dist/index.js"
+  },
+  "files": [
+    "dist",
+    "easyeda-bridge-extension.eext",
+    "README.md",
+    "LICENSE"
+  ],
+  "packageManager": "pnpm@11.5.1",
+  "engines": {
+    "node": ">=20",
+    "pnpm": ">=11"
+  },
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "clean": "node scripts/clean.mjs",
+    "prebuild": "node scripts/sync-versions.mjs",
+    "build": "pnpm clean && tsc -p tsconfig.build.json",
+    "build:extension": "pnpm --filter @easyeda-mcp-pro/bridge-extension build",
+    "setup:local": "pnpm build && pnpm build:extension && node dist/index.js --setup-local",
+    "doctor": "pnpm build && node dist/index.js --doctor",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit",
+    "typecheck:extension": "pnpm --filter @easyeda-mcp-pro/bridge-extension typecheck",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "verify:extension": "pnpm --filter @easyeda-mcp-pro/bridge-extension verify",
+    "inspector": "pnpm build && npx @modelcontextprotocol/inspector node dist/index.js",
+    "generate:methods": "tsx scripts/generate-method-registry.ts",
+    "generate:tools-doc": "tsx scripts/generate-tools-doc.ts",
+    "verify:tool-coverage": "tsx scripts/verify-tool-coverage.mts",
+    "docs:dev": "vitepress dev docs",
+    "docs:build": "vitepress build docs",
+    "docs:preview": "vitepress preview docs",
+    "check:metadata": "node scripts/check-metadata.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "dotenv": "^17.4.2",
+    "jose": "^6.2.3",
+    "pino": "^10.3.1",
+    "undici": "^8.4.1",
+    "ws": "^8.21.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@jlceda/pro-api-types": "^0.2.57",
+    "@types/express": "^5.0.6",
+    "@types/node": "^24.13.2",
+    "@types/ws": "^8.18.1",
+    "eslint": "^10.4.1",
+    "prettier": "^3.8.4",
+    "tsx": "^4.22.4",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.61.0",
+    "vitepress": "^1.6.4",
+    "vitest": "^4.1.8"
+  }
+}

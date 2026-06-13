@@ -1,0 +1,457 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.oaslananka/easyeda-mcp-pro",
+  "description": "Production-grade MCP server for EasyEDA Pro: safe PCB design inspection, BOM sourcing, manufacturing export, and AI-assisted hardware review.",
+  "repository": {
+    "url": "https://github.com/oaslananka/easyeda-mcp-pro",
+    "source": "github"
+  },
+  "version": "0.4.0",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "easyeda-mcp-pro",
+      "version": "0.4.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "NODE_ENV",
+          "description": "Environment mode",
+          "isRequired": false,
+          "default": "development"
+        },
+        {
+          "name": "LOG_LEVEL",
+          "description": "Pino log level",
+          "isRequired": false,
+          "default": "info"
+        },
+        {
+          "name": "TOOL_PROFILE",
+          "description": "Active tool profile (core, pro, full, dev, experimental)",
+          "isRequired": false,
+          "default": "core"
+        },
+        {
+          "name": "MCP_PROTOCOL_VERSION",
+          "description": "MCP protocol version string",
+          "isRequired": false,
+          "default": "2025-11-25"
+        },
+        {
+          "name": "TRANSPORT",
+          "description": "Server transport mode (stdio or http)",
+          "isRequired": false,
+          "default": "stdio"
+        },
+        {
+          "name": "HTTP_HOST",
+          "description": "HTTP bind address",
+          "isRequired": false,
+          "format": "string",
+          "default": "127.0.0.1"
+        },
+        {
+          "name": "HTTP_PORT",
+          "description": "HTTP port",
+          "isRequired": false,
+          "format": "number",
+          "default": "3000"
+        },
+        {
+          "name": "HTTP_AUTH_DISABLED",
+          "description": "Disable HTTP transport authentication",
+          "isRequired": false,
+          "format": "boolean",
+          "default": "false"
+        },
+        {
+          "name": "HTTP_RATE_LIMIT_MAX",
+          "description": "Max requests per minute per IP",
+          "isRequired": false,
+          "format": "number",
+          "default": "100"
+        },
+        {
+          "name": "CORS_ORIGIN",
+          "description": "Allowed CORS origin for HTTP transport",
+          "isRequired": false,
+          "format": "string",
+          "default": ""
+        },
+        {
+          "name": "MCP_TASKS_ENABLED",
+          "description": "Enable experimental MCP tasks",
+          "isRequired": false,
+          "format": "boolean",
+          "default": "false"
+        },
+        {
+          "name": "MCP_APPS_ENABLED",
+          "description": "Enable experimental MCP apps",
+          "isRequired": false,
+          "format": "boolean",
+          "default": "false"
+        },
+        {
+          "name": "MCP_V2_EXPERIMENTAL",
+          "description": "Enable experimental MCP v2 features",
+          "isRequired": false,
+          "format": "boolean",
+          "default": "false"
+        },
+        {
+          "name": "BRIDGE_HOST",
+          "description": "Bridge WebSocket host for EasyEDA Pro connection",
+          "isRequired": false,
+          "format": "string",
+          "default": "127.0.0.1"
+        },
+        {
+          "name": "BRIDGE_PORT",
+          "description": "Bridge primary port",
+          "isRequired": false,
+          "format": "number",
+          "default": "18601"
+        },
+        {
+          "name": "BRIDGE_PORT_SCAN",
+          "description": "Port scan specification (comma-separated ports or ranges)",
+          "isRequired": false,
+          "format": "string",
+          "default": "18601,50100-50110"
+        },
+        {
+          "name": "BRIDGE_TIMEOUT_MS",
+          "description": "Bridge call timeout in ms",
+          "isRequired": false,
+          "format": "number",
+          "default": "15000"
+        },
+        {
+          "name": "BRIDGE_HEARTBEAT_MS",
+          "description": "Bridge heartbeat interval in ms",
+          "isRequired": false,
+          "format": "number",
+          "default": "10000"
+        },
+        {
+          "name": "BRIDGE_RECONNECT_INTERVAL_MS",
+          "description": "Bridge reconnect interval in ms",
+          "isRequired": false,
+          "format": "number",
+          "default": "3000"
+        },
+        {
+          "name": "BRIDGE_RECONNECT_MAX_ATTEMPTS",
+          "description": "Max reconnect attempts (0 = infinite)",
+          "isRequired": false,
+          "format": "number",
+          "default": "0"
+        },
+        {
+          "name": "BRIDGE_MAX_PAYLOAD_SIZE",
+          "description": "Max bridge payload size in bytes",
+          "isRequired": false,
+          "format": "number",
+          "default": "1048576"
+        },
+        {
+          "name": "BRIDGE_TOKEN",
+          "description": "Session token for extension auth",
+          "isRequired": false,
+          "format": "string",
+          "default": "",
+          "isSecret": true
+        },
+        {
+          "name": "EASYEDA_DEV_BRIDGE",
+          "description": "Enable EasyEDA dev bridge mode",
+          "isRequired": false,
+          "format": "boolean",
+          "default": "false"
+        },
+        {
+          "name": "BRIDGE_RAW_EXEC_ENABLED",
+          "description": "Enable raw method execution on bridge (dangerous)",
+          "isRequired": false,
+          "format": "boolean",
+          "default": "false"
+        },
+        {
+          "name": "DATA_DIR",
+          "description": "Data directory for storage",
+          "isRequired": false,
+          "format": "string",
+          "default": ".easyeda-mcp-pro"
+        },
+        {
+          "name": "SQLITE_PATH",
+          "description": "SQLite database path",
+          "isRequired": false,
+          "format": "string",
+          "default": ".easyeda-mcp-pro/easyeda-mcp-pro.sqlite"
+        },
+        {
+          "name": "ARTIFACT_DIR",
+          "description": "Artifact export directory",
+          "isRequired": false,
+          "format": "string",
+          "default": ".easyeda-mcp-pro/artifacts"
+        },
+        {
+          "name": "CACHE_DIR",
+          "description": "Cache directory",
+          "isRequired": false,
+          "format": "string",
+          "default": ".easyeda-mcp-pro/cache"
+        },
+        {
+          "name": "AI_PROVIDER",
+          "description": "AI provider (none, anthropic, openai, openrouter, local)",
+          "isRequired": false,
+          "default": "none"
+        },
+        {
+          "name": "AI_MODEL",
+          "description": "AI model name",
+          "isRequired": false,
+          "format": "string",
+          "default": ""
+        },
+        {
+          "name": "AI_API_KEY",
+          "description": "AI provider API key",
+          "isRequired": false,
+          "format": "string",
+          "default": "",
+          "isSecret": true
+        },
+        {
+          "name": "AI_MAX_TOKENS",
+          "description": "Max tokens for AI responses",
+          "isRequired": false,
+          "format": "number",
+          "default": "8000"
+        },
+        {
+          "name": "AI_TIMEOUT_MS",
+          "description": "AI request timeout in ms",
+          "isRequired": false,
+          "format": "number",
+          "default": "60000"
+        },
+        {
+          "name": "AI_ALLOW_DESIGN_MUTATIONS",
+          "description": "Allow AI to modify designs",
+          "isRequired": false,
+          "format": "boolean",
+          "default": "false"
+        },
+        {
+          "name": "JLCPCB_MODE",
+          "description": "JLCPCB API mode (disabled, mock, approved_api)",
+          "isRequired": false,
+          "default": "disabled"
+        },
+        {
+          "name": "JLCPCB_CLIENT_ID",
+          "description": "JLCPCB API client ID",
+          "isRequired": false,
+          "format": "string",
+          "default": "",
+          "isSecret": true
+        },
+        {
+          "name": "JLCPCB_CLIENT_SECRET",
+          "description": "JLCPCB API client secret",
+          "isRequired": false,
+          "format": "string",
+          "default": "",
+          "isSecret": true
+        },
+        {
+          "name": "JLCPCB_API_BASE_URL",
+          "description": "JLCPCB API base URL",
+          "isRequired": false,
+          "format": "string",
+          "default": "https://api.jlcpcb.com"
+        },
+        {
+          "name": "JLCPCB_ENABLE_ORDERING",
+          "description": "Enable JLCPCB ordering",
+          "isRequired": false,
+          "format": "boolean",
+          "default": "false"
+        },
+        {
+          "name": "JLCPCB_DEFAULT_CURRENCY",
+          "description": "JLCPCB default currency (USD, CNY)",
+          "isRequired": false,
+          "default": "USD"
+        },
+        {
+          "name": "JLCSEARCH_ENABLED",
+          "description": "Enable LCSC component search",
+          "isRequired": false,
+          "format": "boolean",
+          "default": "true"
+        },
+        {
+          "name": "JLCSEARCH_BASE_URL",
+          "description": "LCSC search API base URL",
+          "isRequired": false,
+          "format": "string",
+          "default": "https://jlcsearch.tscircuit.com"
+        },
+        {
+          "name": "LCSC_API_KEY",
+          "description": "LCSC API key",
+          "isRequired": false,
+          "format": "string",
+          "default": "",
+          "isSecret": true
+        },
+        {
+          "name": "LCSC_API_SECRET",
+          "description": "LCSC API secret",
+          "isRequired": false,
+          "format": "string",
+          "default": "",
+          "isSecret": true
+        },
+        {
+          "name": "MOUSER_ENABLED",
+          "description": "Enable Mouser integration",
+          "isRequired": false,
+          "format": "boolean",
+          "default": "false"
+        },
+        {
+          "name": "MOUSER_API_KEY",
+          "description": "Mouser API key",
+          "isRequired": false,
+          "format": "string",
+          "default": "",
+          "isSecret": true
+        },
+        {
+          "name": "MOUSER_API_BASE_URL",
+          "description": "Mouser API base URL",
+          "isRequired": false,
+          "format": "string",
+          "default": "https://api.mouser.com"
+        },
+        {
+          "name": "DIGIKEY_ENABLED",
+          "description": "Enable DigiKey integration",
+          "isRequired": false,
+          "format": "boolean",
+          "default": "false"
+        },
+        {
+          "name": "DIGIKEY_CLIENT_ID",
+          "description": "DigiKey OAuth2 client ID",
+          "isRequired": false,
+          "format": "string",
+          "default": "",
+          "isSecret": true
+        },
+        {
+          "name": "DIGIKEY_CLIENT_SECRET",
+          "description": "DigiKey OAuth2 client secret",
+          "isRequired": false,
+          "format": "string",
+          "default": "",
+          "isSecret": true
+        },
+        {
+          "name": "DIGIKEY_SANDBOX",
+          "description": "Use DigiKey sandbox environment",
+          "isRequired": false,
+          "format": "boolean",
+          "default": "true"
+        },
+        {
+          "name": "DIGIKEY_LOCALE",
+          "description": "DigiKey locale",
+          "isRequired": false,
+          "format": "string",
+          "default": "en-US"
+        },
+        {
+          "name": "DIGIKEY_CURRENCY",
+          "description": "DigiKey pricing currency",
+          "isRequired": false,
+          "format": "string",
+          "default": "USD"
+        },
+        {
+          "name": "OAUTH_ENABLED",
+          "description": "Enable OAuth for HTTP mode",
+          "isRequired": false,
+          "format": "boolean",
+          "default": "false"
+        },
+        {
+          "name": "OAUTH_ISSUER",
+          "description": "Expected OAuth token issuer",
+          "isRequired": false,
+          "format": "string",
+          "default": ""
+        },
+        {
+          "name": "OAUTH_AUDIENCE",
+          "description": "Expected OAuth token audience",
+          "isRequired": false,
+          "format": "string",
+          "default": "easyeda-mcp-pro"
+        },
+        {
+          "name": "OAUTH_JWKS_URI",
+          "description": "JWKS endpoint for token signature validation",
+          "isRequired": false,
+          "format": "string",
+          "default": ""
+        },
+        {
+          "name": "OAUTH_REQUIRED_SCOPES",
+          "description": "Required OAuth token scope",
+          "isRequired": false,
+          "format": "string",
+          "default": "easyeda:read"
+        },
+        {
+          "name": "OTEL_ENABLED",
+          "description": "Enable OpenTelemetry",
+          "isRequired": false,
+          "format": "boolean",
+          "default": "false"
+        },
+        {
+          "name": "OTEL_SERVICE_NAME",
+          "description": "OpenTelemetry service name",
+          "isRequired": false,
+          "format": "string",
+          "default": "easyeda-mcp-pro"
+        },
+        {
+          "name": "OTEL_EXPORTER_OTLP_ENDPOINT",
+          "description": "OpenTelemetry OTLP endpoint",
+          "isRequired": false,
+          "format": "string",
+          "default": ""
+        },
+        {
+          "name": "TRACE_SAMPLE_RATE",
+          "description": "OpenTelemetry trace sample rate (0.0 to 1.0)",
+          "isRequired": false,
+          "format": "number",
+          "default": "1.0"
+        }
+      ]
+    }
+  ]
+}

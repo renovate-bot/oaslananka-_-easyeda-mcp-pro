@@ -1,0 +1,282 @@
+import { existsSync, readFileSync } from 'node:fs';
+import { connect as createConnection } from 'node:net';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { EnvSchema, type EnvConfig } from '../config/env.js';
+import { parsePortScanSpec } from '../bridge/manager.js';
+
+type CliCommand =
+  | 'server'
+  | 'setup-local'
+  | 'setup'
+  | 'extension'
+  | 'doctor'
+  | 'help'
+  | 'version'
+  | 'init';
+
+export interface ParsedCliArgs {
+  command: CliCommand;
+  setupClient?: string;
+  setupProfile?: string;
+  extensionOpen?: boolean;
+  extensionCopy?: string;
+}
+
+interface PackageInfo {
+  name: string;
+  version: string;
+}
+
+export interface LocalSetupInfo {
+  packageName: string;
+  packageVersion: string;
+  packageRoot: string;
+  serverEntryPath: string;
+  extensionPackagePath: string;
+  serverEntryExists: boolean;
+  extensionPackageExists: boolean;
+}
+
+interface DoctorPortResult {
+  port: number;
+  reachable: boolean;
+}
+
+export interface DoctorReport {
+  setup: LocalSetupInfo;
+  nodeVersion: string;
+  nodeSupported: boolean;
+  envValid: boolean;
+  envIssues: string[];
+  bridgeHost: string;
+  bridgePorts: DoctorPortResult[];
+}
+
+export function parseCliArgs(args: string[]): ParsedCliArgs {
+  const first = args[0];
+  if (!first) return { command: 'server' };
+
+  switch (first) {
+    case '--setup-local':
+    case 'setup-local':
+      return { command: 'setup-local' };
+    case '--setup':
+    case 'setup': {
+      const client = args[1] ?? 'list';
+      const profileIdx = args.indexOf('--profile');
+      const profile = profileIdx !== -1 ? args[profileIdx + 1] : undefined;
+      return { command: 'setup', setupClient: client, setupProfile: profile };
+    }
+    case '--extension':
+    case 'extension': {
+      const open = args.includes('--open');
+      const copyIdx = args.indexOf('--copy');
+      const copy = copyIdx !== -1 ? args[copyIdx + 1] : undefined;
+      return { command: 'extension', extensionOpen: open, extensionCopy: copy };
+    }
+    case '--doctor':
+    case 'doctor':
+      return { command: 'doctor' };
+    case '--init':
+    case 'init':
+      return { command: 'init' };
+    case '--help':
+    case '-h':
+    case 'help':
+      return { command: 'help' };
+    case '--version':
+    case '-v':
+    case 'version':
+      return { command: 'version' };
+    default:
+      return { command: 'server' };
+  }
+}
+
+function resolvePackageRoot(metaUrl = import.meta.url): string {
+  return fileURLToPath(new URL('../../', metaUrl));
+}
+
+function getLocalSetupInfo(packageRoot = resolvePackageRoot()): LocalSetupInfo {
+  const packageInfo = readPackageInfo(packageRoot);
+  const serverEntryPath = join(packageRoot, 'dist', 'index.js');
+  const extensionPackagePath = join(packageRoot, 'easyeda-bridge-extension.eext');
+
+  return {
+    packageName: packageInfo.name,
+    packageVersion: packageInfo.version,
+    packageRoot,
+    serverEntryPath,
+    extensionPackagePath,
+    serverEntryExists: existsSync(serverEntryPath),
+    extensionPackageExists: existsSync(extensionPackagePath),
+  };
+}
+
+export function formatSetupLocalReport(setup = getLocalSetupInfo()): string {
+  return [
+    'easyeda-mcp-pro local setup',
+    '',
+    `Package: ${setup.packageName}@${setup.packageVersion}`,
+    `MCP server entry: ${status(setup.serverEntryExists)} ${setup.serverEntryPath}`,
+    `EasyEDA extension package: ${status(setup.extensionPackageExists)} ${setup.extensionPackagePath}`,
+    '',
+    'MCP client config (local build, auto-starts the server):',
+    stringifyConfig({
+      mcpServers: {
+        'easyeda-mcp-pro': {
+          command: 'node',
+          args: [setup.serverEntryPath],
+        },
+      },
+    }),
+    '',
+    'MCP client config (npm/npx, after package publish):',
+    stringifyConfig({
+      mcpServers: {
+        'easyeda-mcp-pro': {
+          command: 'npx',
+          args: ['-y', `${setup.packageName}@latest`],
+        },
+      },
+    }),
+    '',
+    'Next steps:',
+    '1. Install or reload the EasyEDA extension package above.',
+    '2. Add one MCP config block to your MCP client.',
+    '3. Open an EasyEDA Pro project, then use MCP Bridge > Connect.',
+    '4. Do not run node dist/index.js manually when your MCP client auto-starts it.',
+  ].join('\n');
+}
+
+export async function createDoctorReport(
+  packageRoot = resolvePackageRoot(),
+): Promise<DoctorReport> {
+  const setup = getLocalSetupInfo(packageRoot);
+  const env = parseCliEnv();
+  const bridgeHost = env.config?.BRIDGE_HOST ?? '127.0.0.1';
+  const ports = parsePortScanSpec(env.config?.BRIDGE_PORT_SCAN ?? '18601');
+  const bridgePorts = [];
+
+  for (const port of ports.slice(0, 20)) {
+    bridgePorts.push({
+      port,
+      reachable: await checkTcpPort(bridgeHost, port),
+    });
+  }
+
+  return {
+    setup,
+    nodeVersion: process.versions.node,
+    nodeSupported: isSupportedNodeVersion(process.versions.node),
+    envValid: env.issues.length === 0,
+    envIssues: env.issues,
+    bridgeHost,
+    bridgePorts,
+  };
+}
+
+export function formatDoctorReport(report: DoctorReport): string {
+  const reachable = report.bridgePorts.find((port) => port.reachable);
+  const bridgeStatus = reachable
+    ? `reachable on ${report.bridgeHost}:${reachable.port}`
+    : `offline on ${report.bridgeHost}:${report.bridgePorts.map((port) => port.port).join(',')}`;
+
+  return [
+    'easyeda-mcp-pro doctor',
+    '',
+    `Node.js: ${status(report.nodeSupported)} ${report.nodeVersion} (supported: >=24 <27)`,
+    `Environment: ${status(report.envValid)}${report.envIssues.length ? ` ${report.envIssues.join('; ')}` : ''}`,
+    `MCP server entry: ${status(report.setup.serverEntryExists)} ${report.setup.serverEntryPath}`,
+    `EasyEDA extension package: ${status(report.setup.extensionPackageExists)} ${report.setup.extensionPackagePath}`,
+    `Bridge server: ${reachable ? 'OK' : 'INFO'} ${bridgeStatus}`,
+    '',
+    reachable
+      ? 'Bridge server is running. If EasyEDA is not connected, reload the extension and click MCP Bridge > Connect.'
+      : 'Bridge server is not running yet. This is normal until your MCP client starts easyeda-mcp-pro.',
+  ].join('\n');
+}
+
+export function formatHelp(): string {
+  return [
+    'easyeda-mcp-pro',
+    '',
+    'Usage:',
+    '  easyeda-mcp-pro                             Start the MCP server (stdio/http)',
+    '',
+    '  easyeda-mcp-pro init                        Start interactive setup wizard',
+    '',
+    '  easyeda-mcp-pro setup [client]               Auto-configure an MCP client',
+    '    Clients: claude, cursor, vscode, windsurf, cline, gemini, zed, amazonq, continue, all',
+    '    Options: --profile <core|pro|full|dev>',
+    '',
+    '  easyeda-mcp-pro extension                    Show bridge extension path and install guide',
+    '    Options: --open    Open file location in file manager',
+    '             --copy <dir>  Copy .eext to the specified directory',
+    '',
+    '  easyeda-mcp-pro --setup-local                Print MCP client config (legacy)',
+    '  easyeda-mcp-pro --doctor                     Check runtime, package, and bridge status',
+    '  easyeda-mcp-pro --version                    Print package version',
+    '',
+    'Examples:',
+    '  npx easyeda-mcp-pro init                     Run interactive setup wizard',
+    '  npx easyeda-mcp-pro setup claude             Configure Claude Desktop',
+    '  npx easyeda-mcp-pro setup all --profile full Configure all detected clients',
+    '  npx easyeda-mcp-pro extension --open         Open extension file location',
+  ].join('\n');
+}
+
+export function formatVersion(packageRoot = resolvePackageRoot()): string {
+  const packageInfo = readPackageInfo(packageRoot);
+  return `${packageInfo.name}@${packageInfo.version}`;
+}
+
+async function checkTcpPort(host: string, port: number, timeoutMs = 2000): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = createConnection({ host, port });
+    let settled = false;
+
+    const finish = (reachable: boolean): void => {
+      if (settled) return;
+      settled = true;
+      socket.destroy();
+      resolve(reachable);
+    };
+
+    socket.setTimeout(timeoutMs);
+    socket.once('connect', () => finish(true));
+    socket.once('timeout', () => finish(false));
+    socket.once('error', () => finish(false));
+  });
+}
+
+function parseCliEnv(): { config?: EnvConfig; issues: string[] } {
+  const result = EnvSchema.safeParse(process.env);
+  if (result.success) return { config: result.data, issues: [] };
+  return {
+    issues: result.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`),
+  };
+}
+
+function readPackageInfo(packageRoot: string): PackageInfo {
+  const raw = readFileSync(join(packageRoot, 'package.json'), 'utf8');
+  const parsed = JSON.parse(raw) as Partial<PackageInfo>;
+  return {
+    name: parsed.name ?? 'easyeda-mcp-pro',
+    version: parsed.version ?? '0.0.0',
+  };
+}
+
+function isSupportedNodeVersion(version: string): boolean {
+  const major = Number(version.split('.')[0]);
+  return Number.isInteger(major) && major >= 24 && major < 27;
+}
+
+function status(ok: boolean): string {
+  return ok ? 'OK' : 'MISSING';
+}
+
+function stringifyConfig(value: unknown): string {
+  return JSON.stringify(value, null, 2);
+}

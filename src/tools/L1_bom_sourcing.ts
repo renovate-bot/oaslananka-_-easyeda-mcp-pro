@@ -1,0 +1,329 @@
+import { z } from 'zod';
+import { type ToolDefinition, type ToolContext } from './types.js';
+import { type EnvConfig } from '../config/env.js';
+import {
+  generateBomQualityReport,
+  createAdapters,
+  DEFAULT_BOM_QUALITY_CONFIG,
+} from '../bom-quality/index.js';
+import type { BomQualityConfig } from '../bom-quality/types.js';
+
+function registerBomSourcingTools(
+  registry: { register: (def: ToolDefinition) => void },
+  _config: EnvConfig,
+) {
+  registry.register({
+    name: 'easyeda_bom_sourcing',
+    title: 'Get BOM sourcing info',
+    description:
+      'Retrieve pricing and availability information for all parts in the project BOM from specified suppliers.',
+    profile: 'core',
+    evidence: ['official-docs'],
+    risk: 'medium',
+    confirmWrite: false,
+    group: 'bom',
+    version: '1.0.0',
+    annotations: {
+      readOnlyHint: true,
+      idempotentHint: true,
+    },
+    inputSchema: z.object({
+      projectId: z.string(),
+      suppliers: z.array(z.string()).optional(),
+    }),
+    outputSchema: z.object({
+      project_id: z.string(),
+      parts: z.array(
+        z.object({
+          reference: z.string(),
+          value: z.string(),
+          lcsc: z.string().optional(),
+          sourcing: z.array(
+            z.object({
+              supplier: z.string(),
+              in_stock: z.boolean(),
+              quantity_available: z.number().int().nonnegative().optional(),
+              unit_price: z.number().nonnegative().optional(),
+              currency: z.string().optional(),
+              lead_time_days: z.number().int().nonnegative().optional(),
+            }),
+          ),
+        }),
+      ),
+      total_parts: z.number().int().nonnegative(),
+      not_available: z.boolean().optional(),
+    }),
+    handler: async (ctx: ToolContext, params: unknown) => {
+      const { projectId, suppliers = ['lcsc'] } = params as {
+        projectId: string;
+        suppliers?: string[];
+      };
+      try {
+        const bomResult = await ctx.bridge.call('bom.generate', {
+          projectId,
+          format: 'json',
+          groupBy: 'lcsc',
+        });
+        const bomEntries = bomResult as Array<{
+          reference: string;
+          value: string;
+          lcsc?: string;
+          quantity: number;
+        }>;
+
+        if (!bomEntries?.length) {
+          return { project_id: projectId, parts: [], total_parts: 0 };
+        }
+
+        const parts = await Promise.allSettled(
+          bomEntries.map(async (entry) => {
+            const sourcing: Array<{
+              supplier: string;
+              in_stock: boolean;
+              quantity_available?: number;
+              unit_price?: number;
+              currency?: string;
+              lead_time_days?: number;
+            }> = [];
+
+            if (suppliers.includes('lcsc') && ctx.vendors.lcsc && entry.lcsc) {
+              try {
+                const detail = await ctx.vendors.lcsc.getPartDetail(entry.lcsc);
+                if (detail) {
+                  const rawDetail = detail as unknown as Record<string, unknown>;
+                  sourcing.push({
+                    supplier: 'lcsc',
+                    in_stock: (detail.stockCount ?? detail.stock ?? 0) > 0,
+                    quantity_available: detail.stockCount ?? detail.stock,
+                    unit_price:
+                      (rawDetail.priceBreaks as Array<{ unitPrice?: number }> | undefined)?.[0]?.unitPrice ??
+                      (typeof rawDetail.price === 'number'
+                        ? rawDetail.price
+                        : typeof rawDetail.price === 'string'
+                          ? parseFloat(rawDetail.price)
+                          : undefined),
+                    currency: 'USD',
+                    lead_time_days: detail.leadTime,
+                  });
+                }
+              // eslint-disable-next-line @typescript-eslint/no-unused-vars
+              } catch (_err) {
+                // ignore and continue
+              }
+            }
+
+            return {
+              reference: entry.reference,
+              value: entry.value,
+              lcsc: entry.lcsc,
+              sourcing,
+            };
+          }),
+        );
+
+        return {
+          project_id: projectId,
+          parts: parts.map((r) =>
+            r.status === 'fulfilled' ? r.value : { reference: '', value: '', sourcing: [] },
+          ),
+          total_parts: bomEntries.length,
+        };
+      } catch (err) {
+        return {
+          project_id: projectId,
+          parts: [],
+          total_parts: 0,
+          not_available: true,
+          error: err instanceof Error ? err.message : String(err),
+        };
+      }
+    },
+  });
+  registry.register({
+    name: 'easyeda_bom_quality_report',
+    title: 'BOM Quality Report',
+    description:
+      'Generate a BOM quality report that identifies unavailable, single-source, missing-MPN, missing-footprint, and low-stock items across configured suppliers.',
+    profile: 'core',
+    evidence: ['vendor-api-docs'],
+    risk: 'medium',
+    confirmWrite: false,
+    group: 'bom',
+    version: '1.0.0',
+    annotations: {
+      readOnlyHint: true,
+      idempotentHint: true,
+    },
+    inputSchema: z.object({
+      projectId: z.string(),
+      low_stock_threshold: z.number().int().nonnegative().default(100).optional(),
+      require_mpn: z.boolean().default(true).optional(),
+      require_footprint: z.boolean().default(true).optional(),
+    }),
+    outputSchema: z.object({
+      bom_id: z.string(),
+      generated_at: z.string(),
+      total_entries: z.number().int().nonnegative(),
+      summary: z.object({
+        total_issues: z.number().int().nonnegative(),
+        errors: z.number().int().nonnegative(),
+        warnings: z.number().int().nonnegative(),
+        info: z.number().int().nonnegative(),
+        unavailable_count: z.number().int().nonnegative(),
+        single_source_count: z.number().int().nonnegative(),
+        missing_mpn_count: z.number().int().nonnegative(),
+        missing_footprint_count: z.number().int().nonnegative(),
+        low_stock_count: z.number().int().nonnegative(),
+      }),
+      entries: z.array(
+        z.object({
+          reference: z.string(),
+          description: z.string(),
+          footprint: z.string(),
+          quantity: z.number().int().nonnegative(),
+          lcsc: z.string().optional(),
+          mpn: z.string().optional(),
+          manufacturer: z.string().optional(),
+          issues: z.array(
+            z.object({
+              type: z.string(),
+              severity: z.string(),
+              reference: z.string(),
+              message: z.string(),
+            }),
+          ),
+        }),
+      ),
+      has_supplier_errors: z.boolean(),
+      not_available: z.boolean().optional(),
+    }),
+    handler: async (ctx: ToolContext, params: unknown) => {
+      const {
+        projectId,
+        low_stock_threshold: lowStockThreshold,
+        require_mpn: requireMpn,
+        require_footprint: requireFootprint,
+      } = params as {
+        projectId: string;
+        low_stock_threshold?: number;
+        require_mpn?: boolean;
+        require_footprint?: boolean;
+      };
+      try {
+        const bomResult = await ctx.bridge.call('bom.generate', {
+          projectId,
+          format: 'json',
+          groupBy: 'value',
+        });
+        const bomEntries = bomResult as Array<{
+          reference?: string;
+          value?: string;
+          footprint?: string;
+          lcsc?: string;
+          quantity?: number;
+          manufacturer?: string;
+        }>;
+
+        if (!bomEntries?.length) {
+          return {
+            bom_id: projectId,
+            generated_at: new Date().toISOString(),
+            total_entries: 0,
+            summary: {
+              total_issues: 0,
+              errors: 0,
+              warnings: 0,
+              info: 0,
+              unavailable_count: 0,
+              single_source_count: 0,
+              missing_mpn_count: 0,
+              missing_footprint_count: 0,
+              low_stock_count: 0,
+            },
+            entries: [],
+            has_supplier_errors: false,
+          };
+        }
+
+        const now = new Date().toISOString();
+        const entries = bomEntries.map((e) => ({
+          reference: e.reference ?? '',
+          value: e.value,
+          footprint: e.footprint,
+          lcsc: e.lcsc,
+          mpn: undefined as string | undefined,
+          manufacturer: e.manufacturer,
+          quantity: e.quantity ?? 0,
+          source: 'bridge' as const,
+          fetchedAt: now,
+        }));
+
+        const adapters = createAdapters(ctx.vendors);
+        const config: BomQualityConfig = {
+          ...DEFAULT_BOM_QUALITY_CONFIG,
+          lowStockThreshold: lowStockThreshold ?? DEFAULT_BOM_QUALITY_CONFIG.lowStockThreshold,
+          requireMpn: requireMpn ?? DEFAULT_BOM_QUALITY_CONFIG.requireMpn,
+          requireFootprint: requireFootprint ?? DEFAULT_BOM_QUALITY_CONFIG.requireFootprint,
+        };
+
+        const report = await generateBomQualityReport(projectId, entries, adapters, config);
+
+        return {
+          bom_id: report.bomId,
+          generated_at: report.generatedAt,
+          total_entries: report.totalEntries,
+          summary: {
+            total_issues: report.summary.totalIssues,
+            errors: report.summary.errors,
+            warnings: report.summary.warnings,
+            info: report.summary.info,
+            unavailable_count: report.summary.unavailableCount,
+            single_source_count: report.summary.singleSourceCount,
+            missing_mpn_count: report.summary.missingMpnCount,
+            missing_footprint_count: report.summary.missingFootprintCount,
+            low_stock_count: report.summary.lowStockCount,
+          },
+          entries: report.entries.map((e) => ({
+            reference: e.reference,
+            description: e.description,
+            footprint: e.footprint,
+            quantity: e.quantity,
+            lcsc: e.lcsc,
+            mpn: e.mpn,
+            manufacturer: e.manufacturer,
+            issues: e.issues.map((i) => ({
+              type: i.type,
+              severity: i.severity,
+              reference: i.reference,
+              message: i.message,
+            })),
+          })),
+          has_supplier_errors: report.hasSupplierErrors,
+        };
+      } catch (err) {
+        return {
+          bom_id: projectId,
+          generated_at: new Date().toISOString(),
+          total_entries: 0,
+          summary: {
+            total_issues: 0,
+            errors: 0,
+            warnings: 0,
+            info: 0,
+            unavailable_count: 0,
+            single_source_count: 0,
+            missing_mpn_count: 0,
+            missing_footprint_count: 0,
+            low_stock_count: 0,
+          },
+          entries: [],
+          has_supplier_errors: false,
+          not_available: true,
+          error: err instanceof Error ? err.message : String(err),
+        };
+      }
+    },
+  });
+}
+
+export { registerBomSourcingTools };

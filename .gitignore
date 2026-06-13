@@ -1,0 +1,16 @@
+node_modules/
+dist/
+.env
+.easyeda-mcp-pro/
+*.tsbuildinfo
+coverage/
+*.log
+.DS_Store
+Thumbs.db
+.playwright-mcp/
+.mcpregistry_*
+.codex-checkpoints/
+TEMP/
+easyeda-bridge-extension.zip
+easyeda-bridge-extension.eext
+.agent-state.json

@@ -1,0 +1,7 @@
+---
+packages:
+  - easyeda-bridge-extension
+
+allowBuilds:
+  esbuild: true
+minimumReleaseAge: 0

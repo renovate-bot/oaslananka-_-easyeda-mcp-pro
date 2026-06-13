@@ -1,0 +1,77 @@
+{
+  "name": "easyeda-mcp-pro-bridge",
+  "uuid": "e7b9fb543e9a4c2898e30d33e5c9b68a",
+  "displayName": "MCP Pro Bridge",
+  "description": "WebSocket bridge for external MCP server connectivity",
+  "version": "0.4.0",
+  "publisher": "oaslananka",
+  "engines": {
+    "eda": "^2.0.0"
+  },
+  "license": "MIT",
+  "categories": "Other",
+  "keywords": ["mcp", "bridge", "websocket"],
+  "images": {
+    "logo": "./images/logo.png"
+  },
+  "activationEvents": {},
+  "entry": "./dist/index",
+  "allowExternalInteraction": true,
+  "dependentExtensions": {},
+  "headerMenus": {
+    "home": [
+      {
+        "id": "MCPBridge",
+        "title": "MCP Bridge",
+        "menuItems": [
+          {
+            "id": "Connect",
+            "title": "Connect",
+            "registerFn": "connect"
+          },
+          {
+            "id": "Disconnect",
+            "title": "Disconnect",
+            "registerFn": "disconnect"
+          },
+          {
+            "id": "ToggleAutoConnect",
+            "title": "Auto-Connect: ON/OFF",
+            "registerFn": "toggleAutoConnect"
+          },
+          {
+            "id": "Status",
+            "title": "Status...",
+            "registerFn": "showStatus"
+          }
+        ]
+      }
+    ],
+    "sch": [
+      {
+        "id": "MCPBridge",
+        "title": "MCP Bridge",
+        "menuItems": [
+          {
+            "id": "Status",
+            "title": "Status...",
+            "registerFn": "showStatus"
+          }
+        ]
+      }
+    ],
+    "pcb": [
+      {
+        "id": "MCPBridge",
+        "title": "MCP Bridge",
+        "menuItems": [
+          {
+            "id": "Status",
+            "title": "Status...",
+            "registerFn": "showStatus"
+          }
+        ]
+      }
+    ]
+  }
+}

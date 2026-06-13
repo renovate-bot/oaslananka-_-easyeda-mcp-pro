@@ -1,0 +1,127 @@
+import { z } from 'zod';
+
+/** Supported protocol versions for the bridge pairing/handshake. */
+export const SUPPORTED_PROTOCOL_VERSIONS = ['1.0.0'] as const;
+
+/**
+ * Zod schema for the initial handshake message.
+ * Client → Server: identifies the client and its protocol version.
+ */
+export const BridgeHandshakeSchema = z.object({
+  type: z.literal('handshake'),
+  protocol: z.literal('easyeda-mcp-pro.bridge'),
+  protocolVersion: z.string(),
+  clientName: z.literal('easyeda-mcp-pro'),
+  extensionVersion: z.string().optional(),
+  easyedaVersion: z.string().optional(),
+  devMode: z.boolean().optional(),
+  sessionToken: z.string().optional(),
+});
+
+/**
+ * Server → Client: issued before handshake when the bridge requires
+ * a pairing proof-of-possession (non-loopback + BRIDGE_TOKEN set).
+ */
+export const BridgePairingChallengeSchema = z.object({
+  type: z.literal('pairing_challenge'),
+  challenge: z.string(),
+});
+
+/**
+ * Client → Server: response to a pairing challenge.
+ * The client echoes the challenge and supplies the session token.
+ */
+export const BridgePairingResponseSchema = z.object({
+  type: z.literal('pairing_response'),
+  challenge: z.string(),
+  sessionToken: z.string(),
+});
+
+/**
+ * Zod schema for the hello message.
+ * Server → Client: sent after successful handshake/pairing to announce
+ * bridge capabilities, version info, and the method registry hash.
+ */
+export const BridgeHelloSchema = z.object({
+  type: z.literal('hello'),
+  bridgeVersion: z.string(),
+  easyedaVersion: z.string().optional(),
+  apiVersion: z.string().optional(),
+  capabilities: z.array(z.string()),
+  methodRegistryHash: z.string(),
+  devMode: z.boolean(),
+});
+
+/**
+ * Zod schema for an RPC request message.
+ * Client → Server: invokes a named method with optional parameters.
+ */
+export const BridgeRequestSchema = z.object({
+  id: z.string(),
+  type: z.literal('request'),
+  method: z.string(),
+  params: z.unknown().optional(),
+  timeoutMs: z.number().int().optional(),
+  traceparent: z.string().optional(),
+});
+
+/**
+ * Zod schema for an RPC response message.
+ * Server → Client: carries the result or a structured error.
+ */
+export const BridgeResponseSchema = z.object({
+  id: z.string(),
+  type: z.literal('response'),
+  ok: z.boolean(),
+  result: z.unknown().optional(),
+  error: z
+    .object({
+      code: z.enum([
+        'BRIDGE_NOT_READY',
+        'METHOD_NOT_ALLOWED',
+        'METHOD_NOT_FOUND',
+        'NET_NOT_FOUND',
+        'EASYEDA_API_ERROR',
+        'TIMEOUT',
+        'INVALID_PARAMS',
+        'UNAUTHORIZED',
+        'DEV_MODE_REQUIRED',
+        'UNKNOWN',
+      ]),
+      message: z.string(),
+      suggestion: z.string(),
+      data: z.unknown().optional(),
+      easyedaVersion: z.string().optional(),
+    })
+    .optional(),
+  durationMs: z.number(),
+});
+
+/**
+ * Zod schema for a heartbeat keep-alive message.
+ * Both directions: ensures the WebSocket connection is still alive.
+ */
+export const BridgeHeartbeatSchema = z.object({
+  type: z.literal('heartbeat'),
+  timestamp: z.number(),
+});
+
+/** Inferred TypeScript type for a hello message. */
+export type BridgeHello = z.infer<typeof BridgeHelloSchema>;
+/**
+ * Inferred TypeScript type for a response message with typed result.
+ * @template TResult - The shape of the successful result payload.
+ */
+export type BridgeResponse<TResult = unknown> = Omit<
+  z.infer<typeof BridgeResponseSchema>,
+  'result' | 'error'
+> & {
+  result?: TResult;
+  error?: {
+    code: string;
+    message: string;
+    suggestion: string;
+    data?: unknown;
+    easyedaVersion?: string;
+  };
+};

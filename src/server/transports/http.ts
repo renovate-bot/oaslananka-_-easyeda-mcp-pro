@@ -1,0 +1,313 @@
+import { randomUUID } from 'node:crypto';
+import { type Express, type Request, type Response, type NextFunction } from 'express';
+import { createMcpExpressApp } from '@modelcontextprotocol/sdk/server/express.js';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import { createRemoteJWKSet, jwtVerify } from 'jose';
+import { type EnvConfig } from '../../config/env.js';
+import { SERVER_VERSION } from '../../config/version.js';
+import { getLogger } from '../../utils/logger.js';
+
+/** Known loopback host values used for default origin policy. */
+const LOOPBACK_ORIGINS = new Set(['http://127.0.0.1', 'http://localhost', 'http://::1', 'null']);
+
+export interface HttpTransportInstance {
+  app: Express;
+  transport: StreamableHTTPServerTransport;
+  start: () => Promise<void>;
+  close: () => Promise<void>;
+}
+
+interface RateLimitEntry {
+  count: number;
+  resetAt: number;
+}
+
+function createRateLimiter(windowMs: number, maxRequests: number) {
+  const store = new Map<string, RateLimitEntry>();
+  const CLEANUP_THRESHOLD = 1000;
+
+  return (req: Request, res: Response, next: NextFunction): void => {
+    const key = req.ip ?? 'unknown';
+    const now = Date.now();
+
+    if (store.size > CLEANUP_THRESHOLD) {
+      for (const [k, entry] of store) {
+        if (entry.resetAt <= now) store.delete(k);
+      }
+    }
+
+    let entry = store.get(key);
+
+    if (!entry || entry.resetAt <= now) {
+      entry = { count: 0, resetAt: now + windowMs };
+      store.set(key, entry);
+    }
+
+    entry.count++;
+    res.setHeader('X-RateLimit-Limit', String(maxRequests));
+    res.setHeader('X-RateLimit-Remaining', String(Math.max(0, maxRequests - entry.count)));
+    res.setHeader('X-RateLimit-Reset', String(Math.ceil(entry.resetAt / 1000)));
+
+    if (entry.count > maxRequests) {
+      res.status(429).json({ error: 'Too many requests', retryAfterMs: entry.resetAt - now });
+      return;
+    }
+    next();
+  };
+}
+
+/**
+ * Supported token type hints (typ claim).
+ * We accept JWT by default and only reject tokens with an explicit non-JWT typ.
+ */
+const SUPPORTED_TOKEN_TYPES = new Set(['JWT', undefined]);
+
+/** Structured error responses for token validation failures. */
+function tokenError(res: Response, message: string, code = 'invalid_token'): void {
+  res.status(401).json({ error: message, code });
+}
+
+function validateOAuthToken(config: EnvConfig) {
+  if (!config.OAUTH_ENABLED) {
+    return (_req: Request, _res: Response, next: NextFunction): void => next();
+  }
+
+  // The config validator already ensures OAUTH_JWKS_URI is present when OAuth is enabled.
+  // We cache the JWKSet for the lifetime of the server.
+  const JWKSet = createRemoteJWKSet(new URL(config.OAUTH_JWKS_URI));
+
+  return (req: Request, res: Response, next: NextFunction): void => {
+    // ── 1. Extract Bearer token ───────────────────────────────────────────
+    const auth = req.headers.authorization;
+    if (!auth || !auth.startsWith('Bearer ')) {
+      tokenError(res, 'Missing or invalid Authorization header', 'missing_auth');
+      return;
+    }
+
+    const token = auth.slice(7);
+    if (!token) {
+      tokenError(res, 'Empty Bearer token', 'empty_token');
+      return;
+    }
+
+    // ── 2. Verify JWT ─────────────────────────────────────────────────────
+    jwtVerify(token, JWKSet, {
+      issuer: config.OAUTH_ISSUER || undefined,
+      audience: config.OAUTH_AUDIENCE || undefined,
+      algorithms: ['RS256', 'RS384', 'RS512', 'ES256', 'ES384', 'ES512'],
+    })
+      .then(({ payload, protectedHeader }) => {
+        // Validate token type (typ) — it lives in the protected header per JWT spec
+        const typ = protectedHeader.typ;
+        if (typ !== undefined && !SUPPORTED_TOKEN_TYPES.has(typ)) {
+          tokenError(res, `Unsupported token type: ${typ}`, 'unsupported_token_type');
+          return;
+        }
+
+        res.locals.claims = payload;
+        next();
+      })
+      .catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : String(err);
+        getLogger().warn({ err: msg }, 'OAuth token validation failed');
+
+        // Map jose errors to user-friendly messages
+        // jose error examples:
+        //   '"exp" claim timestamp check failed' → token_expired
+        //   '"iss" claim mismatch' → invalid_issuer
+        //   '"aud" claim mismatch' → invalid_audience
+        //   'signature verification failed' → invalid_signature
+        if (/["']exp["']/.test(msg) || /expired|timestamp/i.test(msg)) {
+          tokenError(res, 'Token has expired', 'token_expired');
+        } else if (/["']iss["']/.test(msg) || /issuer/i.test(msg)) {
+          tokenError(res, 'Invalid token issuer', 'invalid_issuer');
+        } else if (/["']aud["']/.test(msg) || /audience/i.test(msg)) {
+          tokenError(res, 'Invalid token audience', 'invalid_audience');
+        } else if (/signature|key|JWT|JWS|malformed|parse/i.test(msg)) {
+          tokenError(res, 'Invalid token signature', 'invalid_signature');
+        } else {
+          tokenError(res, 'Token validation failed', 'token_validation_failed');
+        }
+      });
+  };
+}
+
+/** Check whether the given host is a loopback address. */
+export function isLoopback(host: string): boolean {
+  return host === '127.0.0.1' || host === 'localhost' || host === '::1';
+}
+
+/**
+ * Parse a comma-separated origin allowlist string into a Set.
+ * Empty string returns an empty set. '*' returns a set containing '*' only.
+ */
+export function parseOriginAllowlist(raw: string): Set<string> {
+  if (!raw) return new Set();
+  const origins = raw
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  return new Set(origins);
+}
+
+/**
+ * Create middleware for origin validation and CORS handling.
+ *
+ * - DNS rebinding protection: validates the Host header matches the configured
+ *   HTTP_HOST when running on a non-loopback address.
+ * - Origin validation: rejects requests whose `Origin` is not in the allowlist.
+ * - CORS preflight: responds with appropriate headers for OPTIONS requests.
+ * - No-origin requests (non-browser clients) are always allowed.
+ */
+export function createOriginValidator(config: EnvConfig) {
+  const allowedOrigins = parseOriginAllowlist(config.ALLOWED_ORIGINS);
+  const hasExplicitAllowlist = allowedOrigins.size > 0;
+  const allowAll = allowedOrigins.has('*');
+  const loopbackMode = isLoopback(config.HTTP_HOST);
+
+  return (req: Request, res: Response, next: NextFunction): void => {
+    // ── 1. DNS rebinding protection ───────────────────────────────────────
+    // On non-loopback, verify the Host header matches our configured bind address.
+    // This prevents an attacker from pointing a DNS name at our IP and bypassing
+    // browser same-origin policy.
+    if (!loopbackMode) {
+      const host = req.headers.host;
+      if (host) {
+        const expectedHost = `${config.HTTP_HOST}:${config.HTTP_PORT}`;
+        const expectedHostWithoutPort = config.HTTP_HOST;
+        if (
+          host !== expectedHost &&
+          host !== expectedHostWithoutPort &&
+          !host.startsWith('127.0.0.1') &&
+          !host.startsWith('localhost')
+        ) {
+          res.status(400).json({
+            error: 'Invalid Host header',
+            code: 'host_mismatch',
+          });
+          return;
+        }
+      }
+    }
+
+    // ── 2. Origin validation ──────────────────────────────────────────────
+    const origin = req.headers.origin;
+
+    // Non-browser requests without an Origin header are always allowed.
+    if (!origin) {
+      next();
+      return;
+    }
+
+    // Wildcard allows everything.
+    if (allowAll) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      next();
+      return;
+    }
+
+    // On loopback, accept known localhost origins and the legacy CORS_ORIGIN.
+    if (loopbackMode) {
+      const legacyMatch = config.CORS_ORIGIN && origin === config.CORS_ORIGIN;
+      if (LOOPBACK_ORIGINS.has(origin) || legacyMatch) {
+        res.setHeader('Access-Control-Allow-Origin', origin);
+        next();
+        return;
+      }
+    }
+
+    // Check the explicit allowlist.
+    if (hasExplicitAllowlist && allowedOrigins.has(origin)) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      next();
+      return;
+    }
+
+    // ── 3. Reject unknown origins ─────────────────────────────────────────
+    res.status(403).json({
+      error: 'Origin not allowed',
+      code: 'origin_not_allowed',
+    });
+  };
+}
+
+/** CORS preflight handler for OPTIONS requests. */
+export function handleCorsPreflight(req: Request, res: Response, next: NextFunction): void {
+  if (req.method === 'OPTIONS') {
+    // Vary: Origin tells caches that the response varies by the Origin header.
+    res.setHeader('Vary', 'Origin');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    res.setHeader('Access-Control-Max-Age', '86400');
+    res.status(204).end();
+    return;
+  }
+  next();
+}
+
+function addSecurityHeaders(_req: Request, res: Response, next: NextFunction): void {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('X-XSS-Protection', '0');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Content-Security-Policy', "default-src 'none'; frame-ancestors 'none'");
+  next();
+}
+
+export function createHttpTransport(config: EnvConfig): HttpTransportInstance {
+  const logger = getLogger();
+
+  const transport = new StreamableHTTPServerTransport({
+    sessionIdGenerator: () => randomUUID(),
+  });
+
+  const app = createMcpExpressApp({ host: config.HTTP_HOST });
+
+  app.use(addSecurityHeaders);
+
+  app.use(createRateLimiter(60_000, config.HTTP_RATE_LIMIT_MAX));
+
+  app.use(validateOAuthToken(config));
+
+  // Origin validation and CORS (must come before route handlers).
+  app.use(createOriginValidator(config));
+  app.use(handleCorsPreflight);
+
+  app.post('/mcp', (req, res) => {
+    transport.handleRequest(req, res, req.body);
+  });
+
+  app.get('/mcp', (req, res) => {
+    transport.handleRequest(req, res);
+  });
+
+  app.get('/healthz', (_req, res) => {
+    res.json({ status: 'ok', version: SERVER_VERSION });
+  });
+
+  app.get('/readyz', (_req, res) => {
+    res.json({ status: 'ok', uptime: process.uptime() });
+  });
+
+  let server: ReturnType<typeof app.listen> | undefined;
+
+  const start = async () => {
+    return new Promise<void>((resolve) => {
+      server = app.listen(config.HTTP_PORT, config.HTTP_HOST, () => {
+        logger.info({ host: config.HTTP_HOST, port: config.HTTP_PORT }, 'HTTP transport listening');
+        resolve();
+      });
+    });
+  };
+
+  const close = async () => {
+    logger.info('HTTP transport closing');
+    await transport.close();
+    const s = server;
+    if (s) {
+      await new Promise<void>((resolve) => s.close(() => resolve()));
+    }
+  };
+
+  return { app, transport, start, close };
+}
