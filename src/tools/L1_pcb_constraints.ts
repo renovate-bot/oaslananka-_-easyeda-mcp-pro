@@ -45,8 +45,7 @@ async function fetchBoardDataFromBridge(
     heightMm: (dimensions as { heightMm?: number }).heightMm,
     layerCount: stackup?.totalLayers ?? layerList.length,
     hasOutline: !!(dimensions as { widthMm?: number }).widthMm,
-    mountingHoleCount:
-      (dimensions as { mountingHoleCount?: number }).mountingHoleCount ?? 0,
+    mountingHoleCount: (dimensions as { mountingHoleCount?: number }).mountingHoleCount ?? 0,
     hasLayerStack: stackupLayers.length > 0,
     hasNetClasses: false,
     hasClearanceRules: false,

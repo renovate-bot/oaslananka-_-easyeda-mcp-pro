@@ -7,7 +7,9 @@ import { EnvSchema } from '../../../src/config/env.js';
 describe('Board Tools', () => {
   let registry: ToolRegistry;
   let context: ToolContext;
-  let bridgeCall: ReturnType<typeof vi.fn<(method: string, params?: unknown, opts?: unknown) => Promise<unknown>>>;
+  let bridgeCall: ReturnType<
+    typeof vi.fn<(method: string, params?: unknown, opts?: unknown) => Promise<unknown>>
+  >;
 
   beforeEach(() => {
     registry = new ToolRegistry();
@@ -77,9 +79,29 @@ describe('Board Tools', () => {
       totalLayers: 4,
       boardThicknessMm: 1.6,
       layers: [
-        { name: 'Top Layer', type: 'signal', thicknessMm: 0.035, material: 'Copper', dielectricConstant: 4.5, copperWeightOz: 1 },
-        { name: 'Dielectric', type: 'core', thicknessMm: 1.53, material: 'FR4', dielectricConstant: 4.5 },
-        { name: 'Bottom Layer', type: 'signal', thicknessMm: 0.035, material: 'Copper', dielectricConstant: 4.5, copperWeightOz: 1 },
+        {
+          name: 'Top Layer',
+          type: 'signal',
+          thicknessMm: 0.035,
+          material: 'Copper',
+          dielectricConstant: 4.5,
+          copperWeightOz: 1,
+        },
+        {
+          name: 'Dielectric',
+          type: 'core',
+          thicknessMm: 1.53,
+          material: 'FR4',
+          dielectricConstant: 4.5,
+        },
+        {
+          name: 'Bottom Layer',
+          type: 'signal',
+          thicknessMm: 0.035,
+          material: 'Copper',
+          dielectricConstant: 4.5,
+          copperWeightOz: 1,
+        },
       ],
     });
 

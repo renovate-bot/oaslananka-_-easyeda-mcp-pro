@@ -917,11 +917,16 @@ async function connectPinToNetImpl(
     } catch {}
     try {
       // Check getState_PrimitiveId directly
-      if (typeof c.getState_PrimitiveId === 'function' && String(c.getState_PrimitiveId()) === primitiveId) return true;
+      if (
+        typeof c.getState_PrimitiveId === 'function' &&
+        String(c.getState_PrimitiveId()) === primitiveId
+      )
+        return true;
     } catch {}
     try {
       // Check by designator (legacy)
-      if (typeof c.getState_Designator === 'function' && c.getState_Designator() === primitiveId) return true;
+      if (typeof c.getState_Designator === 'function' && c.getState_Designator() === primitiveId)
+        return true;
     } catch {}
     return false;
   });
@@ -943,7 +948,9 @@ async function connectPinToNetImpl(
 
   const pins = await target.getAllPins();
   const targetPin = (pins || []).find(
-    (p: any) => typeof p.getState_PinNumber === 'function' && String(p.getState_PinNumber()) === String(pinNumber),
+    (p: any) =>
+      typeof p.getState_PinNumber === 'function' &&
+      String(p.getState_PinNumber()) === String(pinNumber),
   );
   if (!targetPin) {
     throw newBridgeError(
@@ -955,9 +962,10 @@ async function connectPinToNetImpl(
 
   // Modify the pin's OtherProperty to set the net name
   // This is the same property read by listNetsApi()
-  const existing = typeof targetPin.getState_OtherProperty === 'function'
-    ? targetPin.getState_OtherProperty()
-    : {};
+  const existing =
+    typeof targetPin.getState_OtherProperty === 'function'
+      ? targetPin.getState_OtherProperty()
+      : {};
   const updated = { ...(existing || {}), net: netName };
 
   if (typeof targetPin.setState_OtherProperty === 'function') {
@@ -1067,7 +1075,12 @@ async function dispatch(method: string, params: Record<string, unknown> = {}): P
       const nfName = params.netName as string;
       const nfRotation = (params.rotation as number) ?? 0;
       const nfResult = await callFirst(
-        ['SCH_PrimitiveNetLabel.create', 'sch_PrimitiveNetLabel.create', 'SCH_NetFlag.create', 'sch_NetFlag.create'],
+        [
+          'SCH_PrimitiveNetLabel.create',
+          'sch_PrimitiveNetLabel.create',
+          'SCH_NetFlag.create',
+          'sch_NetFlag.create',
+        ],
         nfX,
         nfY,
         nfName,
@@ -1075,7 +1088,11 @@ async function dispatch(method: string, params: Record<string, unknown> = {}): P
       );
       const nfPrimitiveId =
         typeof nfResult === 'object' && nfResult !== null
-          ? String((nfResult as Record<string, unknown>).primitiveId ?? (nfResult as Record<string, unknown>).uuid ?? '')
+          ? String(
+              (nfResult as Record<string, unknown>).primitiveId ??
+                (nfResult as Record<string, unknown>).uuid ??
+                '',
+            )
           : '';
       return {
         primitiveId: nfPrimitiveId || `netflag_${Date.now()}`,
@@ -1089,7 +1106,12 @@ async function dispatch(method: string, params: Record<string, unknown> = {}): P
       const npType = (params.portType as string) ?? 'passive';
       const npRotation = (params.rotation as number) ?? 0;
       const npResult = await callFirst(
-        ['SCH_PrimitiveNetPort.create', 'sch_PrimitiveNetPort.create', 'SCH_NetPort.create', 'sch_NetPort.create'],
+        [
+          'SCH_PrimitiveNetPort.create',
+          'sch_PrimitiveNetPort.create',
+          'SCH_NetPort.create',
+          'sch_NetPort.create',
+        ],
         npX,
         npY,
         npName,
@@ -1098,7 +1120,11 @@ async function dispatch(method: string, params: Record<string, unknown> = {}): P
       );
       const npPrimitiveId =
         typeof npResult === 'object' && npResult !== null
-          ? String((npResult as Record<string, unknown>).primitiveId ?? (npResult as Record<string, unknown>).uuid ?? '')
+          ? String(
+              (npResult as Record<string, unknown>).primitiveId ??
+                (npResult as Record<string, unknown>).uuid ??
+                '',
+            )
           : '';
       return {
         primitiveId: npPrimitiveId || `netport_${Date.now()}`,
@@ -1121,7 +1147,10 @@ async function dispatch(method: string, params: Record<string, unknown> = {}): P
           await connectPinToNetImpl(pin.primitiveId, pin.pinNumber, params.netName as string);
           connectedCount++;
         } catch (err) {
-          logRecoverableError(`connectPinToNet failed for ${pin.primitiveId}/${pin.pinNumber}`, err);
+          logRecoverableError(
+            `connectPinToNet failed for ${pin.primitiveId}/${pin.pinNumber}`,
+            err,
+          );
         }
       }
       return { count: connectedCount };
@@ -1162,8 +1191,7 @@ async function dispatch(method: string, params: Record<string, unknown> = {}): P
       if (schCompClass && typeof schCompClass.getAll === 'function') {
         const allComps = await schCompClass.getAll(undefined, true);
         for (const c of allComps || []) {
-          const ref =
-            typeof c.getState_Designator === 'function' ? c.getState_Designator() : '';
+          const ref = typeof c.getState_Designator === 'function' ? c.getState_Designator() : '';
           if (ref && typeof c.getAllPins === 'function') {
             try {
               const pins = await c.getAllPins();
@@ -1193,9 +1221,7 @@ async function dispatch(method: string, params: Record<string, unknown> = {}): P
         warnings.push(`${floatingPins.length} pin(s) are not connected to any net.`);
       }
       if (connectedRefs.size < totalRefs) {
-        warnings.push(
-          `${totalRefs - connectedRefs.size} component(s) have no net connections.`,
-        );
+        warnings.push(`${totalRefs - connectedRefs.size} component(s) have no net connections.`);
       }
       return {
         nets,
@@ -1216,8 +1242,13 @@ async function dispatch(method: string, params: Record<string, unknown> = {}): P
     case 'api.execute': {
       const code = typeof params.code === 'string' ? params.code : '';
       if (!code.trim())
-        throw newBridgeError('INVALID_PARAMS', 'code is required', 'Provide JavaScript code to execute');
-      const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor as FunctionConstructor;
+        throw newBridgeError(
+          'INVALID_PARAMS',
+          'code is required',
+          'Provide JavaScript code to execute',
+        );
+      const AsyncFunction = Object.getPrototypeOf(async function () {})
+        .constructor as FunctionConstructor;
       const edaGlobal = (() => {
         try {
           if (typeof eda !== 'undefined' && eda) return eda;
@@ -1948,7 +1979,9 @@ function showStatus(): void {
   }
 
   if (autoConnectEnabled && !manualDisconnectRequested) {
-    showToast(`MCP Bridge: waiting for server | ${autoLabel} — retrying (attempt ${reconnectAttempts + 1})`);
+    showToast(
+      `MCP Bridge: waiting for server | ${autoLabel} — retrying (attempt ${reconnectAttempts + 1})`,
+    );
     scheduleReconnect();
     return;
   }

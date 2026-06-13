@@ -594,7 +594,10 @@ export class BridgeManager extends EventEmitter {
     const jitter = base * 0.1 * (Math.random() * 2 - 1);
     const delay = Math.round(base + jitter);
 
-    getLogger().info({ attempt: this.reconnectAttempts, delay, elapsed }, 'scheduling bridge reconnect');
+    getLogger().info(
+      { attempt: this.reconnectAttempts, delay, elapsed },
+      'scheduling bridge reconnect',
+    );
     this.emit('reconnecting', { attempt: this.reconnectAttempts, delay });
 
     this.reconnectTimer = setTimeout(() => {

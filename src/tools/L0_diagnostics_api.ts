@@ -109,7 +109,8 @@ function registerDiagnosticsApi(
         return {
           ok: false,
           disabled: true,
-          error: 'Raw execution is disabled. Set BRIDGE_RAW_EXEC_ENABLED=true to enable easyeda_execute.',
+          error:
+            'Raw execution is disabled. Set BRIDGE_RAW_EXEC_ENABLED=true to enable easyeda_execute.',
         };
       }
       try {

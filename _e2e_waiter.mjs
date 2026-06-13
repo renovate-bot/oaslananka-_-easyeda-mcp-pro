@@ -11,12 +11,12 @@ console.log('Process started at', new Date().toISOString());
 console.log('=== Starting MCP Server ===');
 const server = spawn('node', ['dist/index.js'], {
   env: { ...process.env, LOG_LEVEL: 'info' },
-  stdio: ['pipe', 'pipe', 'pipe']
+  stdio: ['pipe', 'pipe', 'pipe'],
 });
 
 let srvBuf = '';
-server.stdout.on('data', d => srvBuf += d.toString());
-server.stderr.on('data', d => srvBuf += d.toString());
+server.stdout.on('data', (d) => (srvBuf += d.toString()));
+server.stderr.on('data', (d) => (srvBuf += d.toString()));
 server.on('exit', (c) => console.log(`Server exited code=${c}`));
 
 await sleep(3000);
@@ -28,37 +28,46 @@ let buf = '';
 
 await new Promise((resolve, reject) => {
   const t = setTimeout(() => reject(new Error('TCP connect timeout')), 10000);
-  sock.connect(18601, '127.0.0.1', () => { clearTimeout(t); resolve(); });
+  sock.connect(18601, '127.0.0.1', () => {
+    clearTimeout(t);
+    resolve();
+  });
   sock.on('error', reject);
 });
 
-sock.on('data', d => buf += d.toString());
+sock.on('data', (d) => (buf += d.toString()));
 
 async function mcpCall(method, params = {}) {
   const id = 'r_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
-  const req = JSON.stringify({
-    jsonrpc: '2.0', id, method,
-    params: { name: method, arguments: params }
-  }) + '\n';
-  
+  const req =
+    JSON.stringify({
+      jsonrpc: '2.0',
+      id,
+      method,
+      params: { name: method, arguments: params },
+    }) + '\n';
+
   const prevLen = buf.length;
   sock.write(req);
   await sleep(800);
-  
+
   // Find our response
   const newData = buf.slice(prevLen);
   return newData;
 }
 
 // MCP initialize
-const initReq = JSON.stringify({
-  jsonrpc: '2.0', id: 'init1', method: 'initialize',
-  params: {
-    protocolVersion: '2025-11-25',
-    capabilities: {},
-    clientInfo: { name: 'e2e-waiter', version: '1.0.0' }
-  }
-}) + '\n';
+const initReq =
+  JSON.stringify({
+    jsonrpc: '2.0',
+    id: 'init1',
+    method: 'initialize',
+    params: {
+      protocolVersion: '2025-11-25',
+      capabilities: {},
+      clientInfo: { name: 'e2e-waiter', version: '1.0.0' },
+    },
+  }) + '\n';
 sock.write(initReq);
 await sleep(1000);
 
@@ -72,20 +81,23 @@ const start = Date.now();
 for (let i = 0; ; i++) {
   const elapsed = Date.now() - start;
   if (elapsed > SRV_TIMEOUT) {
-    console.log(`\n❌ Timed out after ${SRV_TIMEOUT/1000}s`);
+    console.log(`\n❌ Timed out after ${SRV_TIMEOUT / 1000}s`);
     break;
   }
-  
+
   const prevLen = buf.length;
-  const req = JSON.stringify({
-    jsonrpc: '2.0', id: 'p' + i, method: 'tools/call',
-    params: { name: 'easyeda_bridge_status', arguments: {} }
-  }) + '\n';
+  const req =
+    JSON.stringify({
+      jsonrpc: '2.0',
+      id: 'p' + i,
+      method: 'tools/call',
+      params: { name: 'easyeda_bridge_status', arguments: {} },
+    }) + '\n';
   sock.write(req);
   await sleep(1200); // wait for response
-  
+
   const resp = buf.slice(prevLen);
-  
+
   if (resp.includes('"connected"')) {
     try {
       const parsed = JSON.parse(resp);
@@ -93,18 +105,18 @@ for (let i = 0; ; i++) {
       if (result) {
         const data = JSON.parse(result);
         if (data.connected === true) {
-          console.log(`\n✅ Bridge CONNECTED at ${Math.round(elapsed/1000)}s!`);
+          console.log(`\n✅ Bridge CONNECTED at ${Math.round(elapsed / 1000)}s!`);
           connected = true;
           break;
         } else if (i % 4 === 0) {
-          process.stdout.write(`\r  ⌛ ${Math.round(elapsed/1000)}s – bridge: disconnected`);
+          process.stdout.write(`\r  ⌛ ${Math.round(elapsed / 1000)}s – bridge: disconnected`);
         }
       }
     } catch {}
   }
-  
+
   if (i % 4 === 0 && i > 0) {
-    process.stdout.write(`\r  ⌛ ${Math.round(elapsed/1000)}s – waiting...`);
+    process.stdout.write(`\r  ⌛ ${Math.round(elapsed / 1000)}s – waiting...`);
   }
 }
 
@@ -114,40 +126,52 @@ if (connected) {
   // Fetch capabilities
   console.log('\n=== Fetching Bridge Capabilities ===');
   const prevLen = buf.length;
-  sock.write(JSON.stringify({
-    jsonrpc: '2.0', id: 'caps', method: 'tools/call',
-    params: { name: 'easyeda_bridge_call', arguments: { method: 'listFunctions', params: {} } }
-  }) + '\n');
+  sock.write(
+    JSON.stringify({
+      jsonrpc: '2.0',
+      id: 'caps',
+      method: 'tools/call',
+      params: { name: 'easyeda_bridge_call', arguments: { method: 'listFunctions', params: {} } },
+    }) + '\n',
+  );
   await sleep(1500);
-  
+
   const capsResp = buf.slice(prevLen);
   console.log('Capabilities response:', capsResp.slice(0, 2000));
-  
+
   // Fetch bridge info
   const prevLen2 = buf.length;
-  sock.write(JSON.stringify({
-    jsonrpc: '2.0', id: 'info', method: 'tools/call',
-    params: { name: 'easyeda_bridge_call', arguments: { method: 'getInfo', params: {} } }
-  }) + '\n');
+  sock.write(
+    JSON.stringify({
+      jsonrpc: '2.0',
+      id: 'info',
+      method: 'tools/call',
+      params: { name: 'easyeda_bridge_call', arguments: { method: 'getInfo', params: {} } },
+    }) + '\n',
+  );
   await sleep(1500);
   console.log('Info response:', buf.slice(prevLen2, prevLen2 + 2000));
-  
+
   // Try easyeda_bridge_call with schematic methods
   const schematicMethods = [
     'schematic.createNetFlag',
     'schematic.createNetPort',
     'schematic.connectPinToNet',
     'schematic.connectPinsByNet',
-    'schematic.validateNetlist'
+    'schematic.validateNetlist',
   ];
-  
+
   console.log('\n=== Testing Schematic Methods ===');
   for (const method of schematicMethods) {
     const p = buf.length;
-    sock.write(JSON.stringify({
-      jsonrpc: '2.0', id: 'sm_' + method.replace('.', '_'), method: 'tools/call',
-      params: { name: 'easyeda_bridge_call', arguments: { method, params: {} } }
-    }) + '\n');
+    sock.write(
+      JSON.stringify({
+        jsonrpc: '2.0',
+        id: 'sm_' + method.replace('.', '_'),
+        method: 'tools/call',
+        params: { name: 'easyeda_bridge_call', arguments: { method, params: {} } },
+      }) + '\n',
+    );
     await sleep(1000);
     const r = buf.slice(p, p + 1000);
     console.log(`${method}:`, r.slice(0, 300));

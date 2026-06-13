@@ -15,7 +15,8 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const CMD_TIMEOUT = 45_000;
 const BRIDGE_MAX_WAIT_S = 120;
 
-let pass = 0, fail = 0;
+let pass = 0,
+  fail = 0;
 function ok(label, detail) {
   const d = detail ? ` (${detail})` : '';
   console.log(`  \u2705 ${label}${d}`);
@@ -35,7 +36,9 @@ function warn(label, detail) {
 const evidence = [];
 
 function capture(label, data) {
-  evidence.push(`--- ${label} ---\n${typeof data === 'string' ? data : JSON.stringify(data, null, 2)}`);
+  evidence.push(
+    `--- ${label} ---\n${typeof data === 'string' ? data : JSON.stringify(data, null, 2)}`,
+  );
 }
 
 // ─────── MCP RPC helpers ──────────────────────────────────────────────────
@@ -61,12 +64,12 @@ function mcpCall(method, params = {}, timeoutMs = CMD_TIMEOUT) {
 async function toolCall(name, args = {}) {
   const result = await mcpCall('tools/call', { name, arguments: args });
   const content = result.content || [];
-  const text = content.map(c => c.text || c?.toString?.() || JSON.stringify(c)).join('\n');
+  const text = content.map((c) => c.text || c?.toString?.() || JSON.stringify(c)).join('\n');
   return { result, text, isError: result.isError === true };
 }
 
 function wait(ms) {
-  return new Promise(r => setTimeout(r, ms));
+  return new Promise((r) => setTimeout(r, ms));
 }
 
 // ─────── Main ─────────────────────────────────────────────────────────────
@@ -94,13 +97,19 @@ async function main() {
 
   serverStdin = server.stdin;
   let serverExited = false;
-  server.on('exit', (c) => { serverExited = true; });
+  server.on('exit', (c) => {
+    serverExited = true;
+  });
 
   const rl = createInterface({ input: server.stdout });
   rl.on('line', (line) => {
     serverStdoutLog += line + '\n';
     let parsed;
-    try { parsed = JSON.parse(line); } catch { return; }
+    try {
+      parsed = JSON.parse(line);
+    } catch {
+      return;
+    }
     if (parsed.id && pending.has(parsed.id)) {
       const { resolve, reject, timer } = pending.get(parsed.id);
       pending.delete(parsed.id);
@@ -116,18 +125,29 @@ async function main() {
   });
 
   function shutdown(label) {
-    try { server.stdin.end(); } catch {}
-    setTimeout(() => { try { server.kill('SIGKILL'); } catch {} }, 1000);
+    try {
+      server.stdin.end();
+    } catch {}
+    setTimeout(() => {
+      try {
+        server.kill('SIGKILL');
+      } catch {}
+    }, 1000);
     if (label) console.log(`  \ud83d\udd0c Shutdown: ${label}`);
   }
 
   await wait(2000);
-  if (serverExited) { fail_('MCP server start', 'exited immediately'); shutdown(); process.exit(1); }
+  if (serverExited) {
+    fail_('MCP server start', 'exited immediately');
+    shutdown();
+    process.exit(1);
+  }
   ok('MCP server started');
 
   // Initialize MCP
   const init = await mcpCall('initialize', {
-    protocolVersion: '2025-11-25', capabilities: {},
+    protocolVersion: '2025-11-25',
+    capabilities: {},
     clientInfo: { name: 'e2e-validator', version: '1.0' },
   });
   serverStdin.write(JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }) + '\n');
@@ -172,9 +192,12 @@ async function main() {
   console.log('\n\u2500\u2500 [2/7] Runtime Method Verification \u2500\u2500\n');
 
   const requiredMethods = [
-    'schematic.createNetFlag', 'schematic.createNetPort',
-    'schematic.connectPinToNet', 'schematic.connectPinsByNet',
-    'schematic.validateNetlist', 'project.save',
+    'schematic.createNetFlag',
+    'schematic.createNetPort',
+    'schematic.connectPinToNet',
+    'schematic.connectPinsByNet',
+    'schematic.validateNetlist',
+    'project.save',
   ];
 
   const capabilitiesFromBridge = bridgeStatusData.capabilities || [];
@@ -208,7 +231,9 @@ async function main() {
   let activeDoc = false;
   let initialNets = [];
   try {
-    const { text: netsText } = await toolCall('easyeda_schematic_nets', { projectId: PLACEHOLDER_ID });
+    const { text: netsText } = await toolCall('easyeda_schematic_nets', {
+      projectId: PLACEHOLDER_ID,
+    });
     const netsParsed = JSON.parse(netsText);
     if (!netsParsed.not_available) {
       activeDoc = true;
@@ -222,7 +247,8 @@ async function main() {
   if (!activeDoc) {
     try {
       const { text: compText } = await toolCall('easyeda_schematic_components', {
-        projectId: PLACEHOLDER_ID, limit: 1,
+        projectId: PLACEHOLDER_ID,
+        limit: 1,
       });
       const compParsed = JSON.parse(compText);
       if (compParsed && !compParsed.not_available) {
@@ -233,7 +259,10 @@ async function main() {
   }
 
   if (!activeDoc) {
-    fail_('Active document', 'no active schematic; open a schematic in EasyEDA Pro and click the canvas');
+    fail_(
+      'Active document',
+      'no active schematic; open a schematic in EasyEDA Pro and click the canvas',
+    );
     shutdown();
     process.exit(1);
   }
@@ -243,7 +272,9 @@ async function main() {
   for (const keyword of ['resistor', 'R_0603', 'R_0805', 'capacitor']) {
     try {
       const { text: dt } = await toolCall('easyeda_schematic_search_device', {
-        key: keyword, itemsOfPage: 10, page: 1,
+        key: keyword,
+        itemsOfPage: 10,
+        page: 1,
       });
       const d = JSON.parse(dt);
       const devs = d.devices || d.results || [];
@@ -256,12 +287,17 @@ async function main() {
 
   if (deviceItems.length < 2) {
     fail_('Device search', `need 2 devices, found ${deviceItems.length}`);
-    shutdown(); process.exit(1);
+    shutdown();
+    process.exit(1);
   }
 
   // Pick the first two suitable devices - prefer R_0603 or R_0805
-  let dev0 = deviceItems.find(d => (d.title || d.name || '').toLowerCase().includes('0603')) || deviceItems[0];
-  let dev1 = deviceItems.find(d => (d.title || d.name || '').toLowerCase().includes('0805')) || (deviceItems.length > 1 ? deviceItems[1] : deviceItems[0]);
+  let dev0 =
+    deviceItems.find((d) => (d.title || d.name || '').toLowerCase().includes('0603')) ||
+    deviceItems[0];
+  let dev1 =
+    deviceItems.find((d) => (d.title || d.name || '').toLowerCase().includes('0805')) ||
+    (deviceItems.length > 1 ? deviceItems[1] : deviceItems[0]);
   if (dev0 === dev1) dev1 = deviceItems[1] || deviceItems[0];
 
   // Extract separate uuid and libraryUuid - SCH_PrimitiveComponent.create requires both
@@ -283,12 +319,18 @@ async function main() {
 
   const R1_REF = 'E2E_R1';
   const R2_REF = 'E2E_R2';
-  let r1PrimId = '', r2PrimId = '', r1Result, r2Result;
+  let r1PrimId = '',
+    r2PrimId = '',
+    r1Result,
+    r2Result;
 
   try {
     r1Result = await toolCall('easyeda_schematic_place_component', {
       deviceItem: { libraryUuid: d0_libUuid, uuid: d0_uuid },
-      x: 100, y: 200, rotation: 0, confirmWrite: true,
+      x: 100,
+      y: 200,
+      rotation: 0,
+      confirmWrite: true,
     });
     ok('Placed R1', r1Result.text.slice(0, 200));
     capture('place R1', r1Result.text);
@@ -304,7 +346,10 @@ async function main() {
   try {
     r2Result = await toolCall('easyeda_schematic_place_component', {
       deviceItem: { libraryUuid: d1_libUuid, uuid: d1_uuid },
-      x: 500, y: 200, rotation: 0, confirmWrite: true,
+      x: 500,
+      y: 200,
+      rotation: 0,
+      confirmWrite: true,
     });
     ok('Placed R2', r2Result.text.slice(0, 200));
     capture('place R2', r2Result.text);
@@ -320,7 +365,8 @@ async function main() {
   if (!r1PrimId || !r2PrimId) {
     try {
       const { text: compText } = await toolCall('easyeda_schematic_components', {
-        projectId: PLACEHOLDER_ID, limit: 50,
+        projectId: PLACEHOLDER_ID,
+        limit: 50,
       });
       capture('components list', compText);
       const cp = JSON.parse(compText);
@@ -343,18 +389,29 @@ async function main() {
   ok('Component primitive IDs', `R1=${r1PrimId} R2=${r2PrimId}`);
 
   // Also get component pins
-  let r1Pins = [], r2Pins = [];
+  let r1Pins = [],
+    r2Pins = [];
   try {
-    const { text: pins1 } = await toolCall('easyeda_schematic_component_pins', { primitiveId: r1PrimId });
+    const { text: pins1 } = await toolCall('easyeda_schematic_component_pins', {
+      primitiveId: r1PrimId,
+    });
     r1Pins = JSON.parse(pins1).pins || JSON.parse(pins1) || [];
-    ok('R1 pins', `${r1Pins.length} pins: ${r1Pins.map(p => p.number || p.pinNumber || '').join(', ')}`);
+    ok(
+      'R1 pins',
+      `${r1Pins.length} pins: ${r1Pins.map((p) => p.number || p.pinNumber || '').join(', ')}`,
+    );
   } catch (e) {
     warn('R1 pins', e.message);
   }
   try {
-    const { text: pins2 } = await toolCall('easyeda_schematic_component_pins', { primitiveId: r2PrimId });
+    const { text: pins2 } = await toolCall('easyeda_schematic_component_pins', {
+      primitiveId: r2PrimId,
+    });
     r2Pins = JSON.parse(pins2).pins || JSON.parse(pins2) || [];
-    ok('R2 pins', `${r2Pins.length} pins: ${r2Pins.map(p => p.number || p.pinNumber || '').join(', ')}`);
+    ok(
+      'R2 pins',
+      `${r2Pins.length} pins: ${r2Pins.map((p) => p.number || p.pinNumber || '').join(', ')}`,
+    );
   } catch (e) {
     warn('R2 pins', e.message);
   }
@@ -363,15 +420,18 @@ async function main() {
   console.log('\n\u2500\u2500 [5/7] Create TEST_NET \u2691 & \u2690 \u2500\u2500\n');
 
   const TEST_NET = 'TEST_NET';
-  let flagPrimId = 'unknown', portPrimId = 'unknown';
+  let flagPrimId = 'unknown',
+    portPrimId = 'unknown';
 
   // Create net flag
   try {
     const res = await toolCall('easyeda_schematic_create_net_flag', {
       projectId: PLACEHOLDER_ID,
       netName: TEST_NET,
-      x: 300, y: 100,
-      rotation: 0, confirmWrite: true,
+      x: 300,
+      y: 100,
+      rotation: 0,
+      confirmWrite: true,
     });
     try {
       const parsed = JSON.parse(res.text);
@@ -388,8 +448,11 @@ async function main() {
     const res = await toolCall('easyeda_schematic_create_net_port', {
       projectId: PLACEHOLDER_ID,
       netName: TEST_NET,
-      x: 300, y: 300,
-      portType: 'passive', rotation: 0, confirmWrite: true,
+      x: 300,
+      y: 300,
+      portType: 'passive',
+      rotation: 0,
+      confirmWrite: true,
     });
     try {
       const parsed = JSON.parse(res.text);
@@ -446,7 +509,9 @@ async function main() {
       confirmWrite: true,
     });
     let cnt = '?';
-    try { cnt = JSON.parse(r.text)?.count || '?'; } catch {}
+    try {
+      cnt = JSON.parse(r.text)?.count || '?';
+    } catch {}
     ok('connectPinsByNet R2/1,2 \u2192 TEST_NET', `count=${cnt}`);
     capture('connect R2 pins', r.text);
   } catch (err) {
@@ -464,7 +529,7 @@ async function main() {
     try {
       const vp = JSON.parse(r.text);
       if (vp.success !== false) {
-        const hasTestNet = (vp.nets || []).some(n => n.netName === TEST_NET);
+        const hasTestNet = (vp.nets || []).some((n) => n.netName === TEST_NET);
         if (hasTestNet) ok('TEST_NET in pre-save netlist');
         else warn('TEST_NET not in pre-save netlist', 'may appear after save');
       }
@@ -492,7 +557,7 @@ async function main() {
   try {
     const { text: n } = await toolCall('easyeda_schematic_nets', { projectId: PLACEHOLDER_ID });
     const p = JSON.parse(n);
-    const netNames = (p.nets || []).map(x => x.net_name || x.netName || '');
+    const netNames = (p.nets || []).map((x) => x.net_name || x.netName || '');
     const hasTestNet = netNames.includes(TEST_NET);
     if (hasTestNet) {
       ok('TEST_NET in net list', `all nets: [${netNames.join(', ')}]`);
@@ -519,11 +584,14 @@ async function main() {
     const r = await toolCall('easyeda_schematic_validate_netlist', { projectId: PLACEHOLDER_ID });
     capture('validate netlist post-save', r.text);
     const vp = JSON.parse(r.text);
-    const testNetEntry = (vp.nets || []).filter(n => n.netName === TEST_NET);
+    const testNetEntry = (vp.nets || []).filter((n) => n.netName === TEST_NET);
     if (testNetEntry.length > 0) {
       const refs = testNetEntry[0].refs || testNetEntry[0].nodes || [];
       const pins = testNetEntry[0].pins || [];
-      ok('validateNetlist \u2192 TEST_NET', `refs=${JSON.stringify(refs)} pins=${JSON.stringify(pins)}`);
+      ok(
+        'validateNetlist \u2192 TEST_NET',
+        `refs=${JSON.stringify(refs)} pins=${JSON.stringify(pins)}`,
+      );
     } else if (vp.success !== false) {
       warn('TEST_NET in netlist', 'netlist returned but TEST_NET not found in parsed result');
       ok('validateNetlist returned', 'success=true');
@@ -539,7 +607,7 @@ async function main() {
   try {
     const { text: n } = await toolCall('easyeda_schematic_nets', { projectId: PLACEHOLDER_ID });
     const p = JSON.parse(n);
-    const names = (p.nets || []).map(x => x.net_name || x.netName || '');
+    const names = (p.nets || []).map((x) => x.net_name || x.netName || '');
     if (names.includes(TEST_NET)) {
       ok('TEST_NET persists after save');
     } else {
@@ -556,19 +624,29 @@ async function main() {
   // confirmWrite missing
   try {
     await toolCall('easyeda_schematic_create_net_flag', {
-      projectId: PLACEHOLDER_ID, netName: 'SHOULD_FAIL', x: 0, y: 0,
+      projectId: PLACEHOLDER_ID,
+      netName: 'SHOULD_FAIL',
+      x: 0,
+      y: 0,
     });
     fail_('confirmWrite missing', 'should have rejected');
-  } catch { ok('Reject: confirmWrite missing'); }
+  } catch {
+    ok('Reject: confirmWrite missing');
+  }
 
   // invalid component ID
   try {
     await toolCall('easyeda_schematic_connect_pin_to_net', {
-      projectId: PLACEHOLDER_ID, primitiveId: 'NONEXISTENT_ID', pinNumber: '1',
-      netName: TEST_NET, confirmWrite: true,
+      projectId: PLACEHOLDER_ID,
+      primitiveId: 'NONEXISTENT_ID',
+      pinNumber: '1',
+      netName: TEST_NET,
+      confirmWrite: true,
     });
     warn('Invalid component ID', 'did not throw (extension may silently handle)');
-  } catch { ok('Reject: invalid primitiveId'); }
+  } catch {
+    ok('Reject: invalid primitiveId');
+  }
 
   // ── Cleanup ──────────────────────────────────────────────────────────
   console.log('\n\u2500\u2500 [7c] Cleanup \u2500\u2500\n');
@@ -579,7 +657,8 @@ async function main() {
     if (pid && pid !== 'unknown') {
       try {
         const r = await toolCall('easyeda_schematic_delete_primitive', {
-          primitiveIds: [pid], confirmWrite: true,
+          primitiveIds: [pid],
+          confirmWrite: true,
         });
         deletedCount++;
         capture(`delete ${pid}`, r.text);
@@ -594,7 +673,8 @@ async function main() {
     if (pid && pid !== R1_REF && pid !== R2_REF) {
       try {
         const r = await toolCall('easyeda_schematic_delete_primitive', {
-          primitiveIds: [pid], confirmWrite: true,
+          primitiveIds: [pid],
+          confirmWrite: true,
         });
         deletedCount++;
         capture(`delete component ${pid}`, r.text);
@@ -605,12 +685,19 @@ async function main() {
   }
 
   ok('Cleanup deletions attempted', `${deletedCount} primitives`);
-  capture('cleanup evidence', { deleted: deletedCount, flagPrimId, portPrimId, r1PrimId, r2PrimId });
+  capture('cleanup evidence', {
+    deleted: deletedCount,
+    flagPrimId,
+    portPrimId,
+    r1PrimId,
+    r2PrimId,
+  });
 
   // Save after cleanup
   try {
     const r = await toolCall('easyeda_project_save', {
-      projectId: PLACEHOLDER_ID, confirmWrite: true,
+      projectId: PLACEHOLDER_ID,
+      confirmWrite: true,
     });
     ok('Project saved after cleanup');
     capture('post-cleanup save', r.text);
@@ -622,9 +709,12 @@ async function main() {
   try {
     const { text: n } = await toolCall('easyeda_schematic_nets', { projectId: PLACEHOLDER_ID });
     const p = JSON.parse(n);
-    const names = (p.nets || []).map(x => x.net_name || x.netName || '');
+    const names = (p.nets || []).map((x) => x.net_name || x.netName || '');
     if (names.includes(TEST_NET)) {
-      warn('Cleanup netlist', 'TEST_NET still present after deletion (label objects removed but net may persist)');
+      warn(
+        'Cleanup netlist',
+        'TEST_NET still present after deletion (label objects removed but net may persist)',
+      );
     } else {
       ok('Cleanup verified', 'TEST_NET absent from netlist');
     }
@@ -665,7 +755,7 @@ async function main() {
   process.exit(fail > 0 ? 1 : 0);
 }
 
-main().catch(e => {
+main().catch((e) => {
   console.error('E2E FATAL:', e);
   process.exit(1);
 });

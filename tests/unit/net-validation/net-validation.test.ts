@@ -91,9 +91,7 @@ describe('missing topology', () => {
   it('detects missing ground net (no net with type=ground)', () => {
     const result = validateNets(NO_GROUND_INPUT);
     expect(result.valid).toBe(false);
-    const groundIssues = result.errors.filter(
-      (e) => e.code === NetValidationCode.NetMissingGround,
-    );
+    const groundIssues = result.errors.filter((e) => e.code === NetValidationCode.NetMissingGround);
     expect(groundIssues.length).toBeGreaterThanOrEqual(1);
     const noGroundError = groundIssues.find((e) => e.message.includes('No ground net found'));
     expect(noGroundError).toBeDefined();

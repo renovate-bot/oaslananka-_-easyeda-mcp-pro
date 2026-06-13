@@ -96,7 +96,8 @@ function registerBomSourcingTools(
                     in_stock: (detail.stockCount ?? detail.stock ?? 0) > 0,
                     quantity_available: detail.stockCount ?? detail.stock,
                     unit_price:
-                      (rawDetail.priceBreaks as Array<{ unitPrice?: number }> | undefined)?.[0]?.unitPrice ??
+                      (rawDetail.priceBreaks as Array<{ unitPrice?: number }> | undefined)?.[0]
+                        ?.unitPrice ??
                       (typeof rawDetail.price === 'number'
                         ? rawDetail.price
                         : typeof rawDetail.price === 'string'
@@ -106,7 +107,7 @@ function registerBomSourcingTools(
                     lead_time_days: detail.leadTime,
                   });
                 }
-              // eslint-disable-next-line @typescript-eslint/no-unused-vars
+                // eslint-disable-next-line @typescript-eslint/no-unused-vars
               } catch (_err) {
                 // ignore and continue
               }

@@ -7,7 +7,9 @@ import { EnvSchema } from '../../../src/config/env.js';
 describe('Diagnostics Tools', () => {
   let registry: ToolRegistry;
   let context: ToolContext;
-  let bridgeCall: ReturnType<typeof vi.fn<(method: string, params?: unknown, opts?: unknown) => Promise<unknown>>>;
+  let bridgeCall: ReturnType<
+    typeof vi.fn<(method: string, params?: unknown, opts?: unknown) => Promise<unknown>>
+  >;
 
   beforeEach(() => {
     registry = new ToolRegistry();

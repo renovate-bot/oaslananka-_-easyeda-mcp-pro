@@ -103,7 +103,10 @@ export class LcscAdapter implements SupplierAdapter {
     return this.client !== null;
   }
 
-  private buildFoundResult(detail: import('../vendors/lcsc/client.js').LcscPart, now: string): SupplierQueryResult {
+  private buildFoundResult(
+    detail: import('../vendors/lcsc/client.js').LcscPart,
+    now: string,
+  ): SupplierQueryResult {
     const unitPrice =
       detail.priceBreaks?.[0]?.unitPrice ??
       (typeof detail.price === 'number'
@@ -193,7 +196,10 @@ export class MouserAdapter implements SupplierAdapter {
     return this.client !== null;
   }
 
-  private buildFoundResult(part: import('../vendors/mouser/client.js').MouserPart, now: string): SupplierQueryResult {
+  private buildFoundResult(
+    part: import('../vendors/mouser/client.js').MouserPart,
+    now: string,
+  ): SupplierQueryResult {
     return {
       supplier: 'mouser',
       found: true,
@@ -283,7 +289,11 @@ export class DigiKeyAdapter implements SupplierAdapter {
     return this.client !== null;
   }
 
-  private buildFoundResult(part: import('../vendors/digikey/client.js').DigiKeyPart, mpn: string, now: string): SupplierQueryResult {
+  private buildFoundResult(
+    part: import('../vendors/digikey/client.js').DigiKeyPart,
+    mpn: string,
+    now: string,
+  ): SupplierQueryResult {
     return {
       supplier: 'digikey',
       found: true,

@@ -323,10 +323,13 @@ function registerSchematicReadTools(
     handler: async (ctx: ToolContext, params: unknown) => {
       const { primitiveId } = params as { primitiveId: string };
       try {
-        const result = await ctx.bridge.call<{ path: string; args: unknown[] }, unknown>('api.call', {
-          path: 'SCH_PrimitiveComponent.getAllPinsByPrimitiveId',
-          args: [primitiveId],
-        });
+        const result = await ctx.bridge.call<{ path: string; args: unknown[] }, unknown>(
+          'api.call',
+          {
+            path: 'SCH_PrimitiveComponent.getAllPinsByPrimitiveId',
+            args: [primitiveId],
+          },
+        );
         const resultObj = result as { result?: Array<Record<string, unknown>> } | undefined;
         const pins = Array.isArray(resultObj?.result) ? resultObj!.result : [];
         return {

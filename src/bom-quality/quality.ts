@@ -167,7 +167,11 @@ export async function generateBomQualityReport(
   const reportEntries = await Promise.all(
     entries.map(async (entry) => {
       // ── 1. Query applicable suppliers ──────────────────────────────────
-      const { supplierData, hasErrors, queriedCount } = await querySuppliersForEntry(entry, adapterByKind, logger);
+      const { supplierData, hasErrors, queriedCount } = await querySuppliersForEntry(
+        entry,
+        adapterByKind,
+        logger,
+      );
       if (hasErrors) hasSupplierErrors = true;
 
       // ── 2. Run quality checks ──────────────────────────────────────────

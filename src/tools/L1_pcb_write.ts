@@ -42,7 +42,10 @@ function registerPcbWriteTools(
         layer: number;
       };
       try {
-        const result = await ctx.bridge.call<Record<string, unknown>, { primitiveId?: string; result?: string }>('pcb.placeComponent', {
+        const result = await ctx.bridge.call<
+          Record<string, unknown>,
+          { primitiveId?: string; result?: string }
+        >('pcb.placeComponent', {
           footprint: p.footprint,
           x: p.x,
           y: p.y,
@@ -53,9 +56,7 @@ function registerPcbWriteTools(
         return {
           success: true,
           primitiveId:
-            typeof data === 'string'
-              ? data
-              : (data?.primitiveId ?? data?.result ?? undefined),
+            typeof data === 'string' ? data : (data?.primitiveId ?? data?.result ?? undefined),
         };
       } catch (err) {
         return {
@@ -101,7 +102,10 @@ function registerPcbWriteTools(
       };
       try {
         const flatPoints = p.points.flatMap((pt) => [pt.x, pt.y]);
-        const result = await ctx.bridge.call<Record<string, unknown>, { primitiveId?: string; result?: string }>('pcb.addTrack', {
+        const result = await ctx.bridge.call<
+          Record<string, unknown>,
+          { primitiveId?: string; result?: string }
+        >('pcb.addTrack', {
           points: flatPoints,
           layer: p.layer,
           width: p.width,
@@ -111,9 +115,7 @@ function registerPcbWriteTools(
         return {
           success: true,
           primitiveId:
-            typeof data === 'string'
-              ? data
-              : (data?.primitiveId ?? data?.result ?? undefined),
+            typeof data === 'string' ? data : (data?.primitiveId ?? data?.result ?? undefined),
         };
       } catch (err) {
         return {
@@ -160,7 +162,10 @@ function registerPcbWriteTools(
         netName?: string;
       };
       try {
-        const result = await ctx.bridge.call<Record<string, unknown>, { primitiveId?: string; result?: string }>('pcb.addVia', {
+        const result = await ctx.bridge.call<
+          Record<string, unknown>,
+          { primitiveId?: string; result?: string }
+        >('pcb.addVia', {
           x: p.x,
           y: p.y,
           outerDiameter: p.outerDiameter,
@@ -171,9 +176,7 @@ function registerPcbWriteTools(
         return {
           success: true,
           primitiveId:
-            typeof data === 'string'
-              ? data
-              : (data?.primitiveId ?? data?.result ?? undefined),
+            typeof data === 'string' ? data : (data?.primitiveId ?? data?.result ?? undefined),
         };
       } catch (err) {
         return {
@@ -219,7 +222,10 @@ function registerPcbWriteTools(
       };
       try {
         const flatPoints = p.points.flatMap((pt) => [pt.x, pt.y]);
-        const result = await ctx.bridge.call<Record<string, unknown>, { primitiveId?: string; result?: string }>('pcb.addZone', {
+        const result = await ctx.bridge.call<
+          Record<string, unknown>,
+          { primitiveId?: string; result?: string }
+        >('pcb.addZone', {
           points: flatPoints,
           layer: p.layer,
           netName: p.netName,
@@ -229,9 +235,7 @@ function registerPcbWriteTools(
         return {
           success: true,
           primitiveId:
-            typeof data === 'string'
-              ? data
-              : (data?.primitiveId ?? data?.result ?? undefined),
+            typeof data === 'string' ? data : (data?.primitiveId ?? data?.result ?? undefined),
         };
       } catch (err) {
         return {
@@ -268,9 +272,12 @@ function registerPcbWriteTools(
     handler: async (ctx: ToolContext, params: unknown) => {
       const p = params as { primitiveIds: string[] };
       try {
-        await ctx.bridge.call<Record<string, unknown>, { primitiveId?: string; result?: string }>('pcb.deleteComponent', {
-          primitiveIds: p.primitiveIds,
-        });
+        await ctx.bridge.call<Record<string, unknown>, { primitiveId?: string; result?: string }>(
+          'pcb.deleteComponent',
+          {
+            primitiveIds: p.primitiveIds,
+          },
+        );
         return {
           success: true,
           deletedCount: p.primitiveIds.length,
@@ -310,10 +317,13 @@ function registerPcbWriteTools(
     handler: async (ctx: ToolContext, params: unknown) => {
       const p = params as { primitiveId: string; property: Record<string, unknown> };
       try {
-        await ctx.bridge.call<Record<string, unknown>, { primitiveId?: string; result?: string }>('pcb.modifyComponent', {
-          primitiveId: p.primitiveId,
-          property: p.property,
-        });
+        await ctx.bridge.call<Record<string, unknown>, { primitiveId?: string; result?: string }>(
+          'pcb.modifyComponent',
+          {
+            primitiveId: p.primitiveId,
+            property: p.property,
+          },
+        );
         return {
           success: true,
         };

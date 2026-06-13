@@ -36,7 +36,10 @@ function structuredErrorResponse(error: StructuredError) {
 
 // ── Bridge-disconnected helper ────────────────────────────────────────────
 
-function bridgeDisconnectedResponse(host = '127.0.0.1', port = '49620'): ReturnType<typeof structuredErrorResponse> {
+function bridgeDisconnectedResponse(
+  host = '127.0.0.1',
+  port = '49620',
+): ReturnType<typeof structuredErrorResponse> {
   return structuredErrorResponse({
     errorCode: ErrorCodes.BRIDGE_DISCONNECTED,
     message: [
@@ -160,7 +163,10 @@ export class ToolRegistry {
             // ── Bridge-disconnected interception ──────────────────────
             const msg = err instanceof Error ? err.message : String(err);
             if (msg.includes('Bridge not connected') || msg.includes('Bridge disconnected')) {
-              return bridgeDisconnectedResponse(context.config.bridgeHost, String(context.config.bridgePort));
+              return bridgeDisconnectedResponse(
+                context.config.bridgeHost,
+                String(context.config.bridgePort),
+              );
             }
 
             // ── Generic execution error ───────────────────────────────

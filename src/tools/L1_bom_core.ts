@@ -145,7 +145,7 @@ function registerBomCoreTools(
               } else if (detail.discontinued) {
                 obsolete.push(entry.reference);
               }
-            // eslint-disable-next-line @typescript-eslint/no-unused-vars
+              // eslint-disable-next-line @typescript-eslint/no-unused-vars
             } catch (_err) {
               // LCSC lookup failed for this part
               invalid.push(entry.reference);

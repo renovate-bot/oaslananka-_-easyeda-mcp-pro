@@ -127,9 +127,9 @@ export class Storage {
   /** Look up a project cache entry by its hash. Returns `null` if not found. */
   getProjectCache(hash: string): ProjectCache | null {
     try {
-      const row = this.db.prepare('SELECT * FROM project_cache WHERE project_hash = ?').get(hash) as
-        | Record<string, unknown>
-        | undefined;
+      const row = this.db
+        .prepare('SELECT * FROM project_cache WHERE project_hash = ?')
+        .get(hash) as Record<string, unknown> | undefined;
       if (!row) return null;
       return {
         projectHash: row.project_hash as string,
