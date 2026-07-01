@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.14.0](https://github.com/oaslananka/easyeda-mcp-pro/compare/easyeda-mcp-pro-v0.13.0...easyeda-mcp-pro-v0.14.0) (2026-07-01)
+
+
+### Features
+
+* add observability budgets ([d15965c](https://github.com/oaslananka/easyeda-mcp-pro/commit/d15965cf48d3445bd9a450db3b96b1ca4cfb4292))
+* add observability budgets ([88fdc70](https://github.com/oaslananka/easyeda-mcp-pro/commit/88fdc7000e96b7cd244743b9bfcc124b62460757))
+
 ## [0.13.0](https://github.com/oaslananka/easyeda-mcp-pro/compare/easyeda-mcp-pro-v0.12.0...easyeda-mcp-pro-v0.13.0) (2026-07-01)
 
 
