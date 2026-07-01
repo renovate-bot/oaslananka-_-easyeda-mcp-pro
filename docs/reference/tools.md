@@ -58,6 +58,7 @@ These tools are profile-gated. Set the `TOOL_PROFILE` environment variable to en
 | `easyeda_schematic_place_component`     | `core`  | `medium` | Place a library component/device on the active schematic sheet.                                                                                                                                                                                                                                               |
 | `easyeda_schematic_search_device`       | `core`  | `low`    | Search for schematic symbols/devices in the EasyEDA library by keywords.                                                                                                                                                                                                                                      |
 | `easyeda_schematic_validate_netlist`    | `core`  | `low`    | Validate the EasyEDA Pro schematic netlist for connectivity issues. Reports net names, connected component references and pins, floating pins, graphical wires without netlist connectivity, and mismatches between visual wires and actual SCH_Net/SCH_Netlist entries. This is a read-only diagnostic tool. |
+| `easyeda_semantic_erc_validate`         | `core`  | `medium` | Run semantic electrical-rule validation over a netlist with pin electrical types to detect output contention, floating inputs, power conflicts, missing power pins, missing decoupling, and voltage-domain mismatches.                                                                                        |
 | `easyeda_wire_probe`                    | `dev`   | `low`    | Inspect live schematic wire objects, including line coordinates, net names, methods, and state getter values, to validate EasyEDA runtime mappings.                                                                                                                                                           |
 
 ---
@@ -1549,6 +1550,39 @@ Returns a JSON object matching the schema:
   warnings: any;
   not_available: any;
   error: any;
+}
+```
+
+---
+
+## `easyeda_semantic_erc_validate`
+
+**Profile:** `core` | **Risk Level:** `medium`
+
+> Run semantic electrical-rule validation over a netlist with pin electrical types to detect output contention, floating inputs, power conflicts, missing power pins, missing decoupling, and voltage-domain mismatches.
+
+### Input Parameters
+
+| Parameter    | Type  | Required | Description |
+| ------------ | ----- | -------- | ----------- |
+| `projectId`  | `any` | No       |             |
+| `nets`       | `any` | Yes      |             |
+| `devices`    | `any` | No       |             |
+| `interfaces` | `any` | No       |             |
+
+### Output Format
+
+Returns a JSON object matching the schema:
+
+```ts
+{
+  project_id: any;
+  passed: any;
+  error_count: any;
+  warning_count: any;
+  total_issues: any;
+  errors: any;
+  warnings: any;
 }
 ```
 
