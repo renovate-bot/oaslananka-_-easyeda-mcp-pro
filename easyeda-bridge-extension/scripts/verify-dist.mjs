@@ -106,6 +106,13 @@ if (!Array.isArray(manifest.keywords) || manifest.keywords.length < 5) {
   console.log(`OK: marketplace keywords (${manifest.keywords.length})`);
 }
 
+if (typeof manifest.bugs !== 'string' || !/^https?:\/\//.test(manifest.bugs)) {
+  console.error('MARKETPLACE BUGS FIELD INVALID: expected an HTTP(S) URL string');
+  ok = false;
+} else {
+  console.log('OK: marketplace bugs URL string');
+}
+
 const logoPath = join(root, 'images', 'logo.png');
 try {
   const { width, height } = readPngDimensions(logoPath);
