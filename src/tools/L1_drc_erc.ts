@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { type ToolDefinition, type ToolContext } from './types.js';
 import { type EnvConfig } from '../config/env.js';
+import { validateNets } from '../net-validation/validation.js';
 
 function registerDrcErcTools(
   registry: { register: (def: ToolDefinition) => void },
@@ -200,6 +201,197 @@ function registerDrcErcTools(
           error: err instanceof Error ? err.message : String(err),
         };
       }
+    },
+  });
+
+  const semanticPinSchema = z.object({
+    pin: z.string(),
+    name: z.string().optional(),
+    electricalType: z.enum([
+      'input',
+      'output',
+      'bidirectional',
+      'passive',
+      'power_input',
+      'power_output',
+      'power_source',
+      'open_drain',
+      'tri_state',
+      'no_connect',
+    ]),
+    required: z.boolean().optional(),
+    expectedNetType: z.enum(['power', 'signal', 'ground']).optional(),
+    expectedVoltage: z.number().optional(),
+    noConnectAllowed: z.boolean().optional(),
+  });
+
+  const semanticNodeSchema = z.object({
+    deviceRef: z.string(),
+    pin: z.string(),
+    electricalType: semanticPinSchema.shape.electricalType.optional(),
+    pinName: z.string().optional(),
+    expectedVoltage: z.number().optional(),
+  });
+
+  const semanticNetSchema = z.object({
+    id: z.string(),
+    name: z.string(),
+    type: z.enum(['power', 'signal', 'ground']),
+    voltage: z.number().optional(),
+    nodes: z.array(semanticNodeSchema),
+  });
+
+  const semanticDeviceSchema = z.object({
+    id: z.string(),
+    ref: z.string(),
+    category: z.string().optional(),
+    pins: z.array(semanticPinSchema).optional(),
+    requiresDecoupling: z.boolean().optional(),
+  });
+
+  const semanticInterfaceSchema = z.object({
+    id: z.string(),
+    name: z.string(),
+    pinout: z.array(
+      z.object({
+        pin: z.string(),
+        signal: z.string(),
+        type: z.string().optional(),
+      }),
+    ),
+  });
+
+  const semanticIssueSchema = z.object({
+    code: z.string(),
+    message: z.string(),
+    severity: z.enum(['error', 'warning']),
+    path: z.string().optional(),
+    net_name: z.string().optional(),
+    component_ref: z.string().optional(),
+    pin: z.string().optional(),
+    remediation_hint: z.string(),
+    details: z.record(z.string(), z.unknown()).optional(),
+  });
+
+  registry.register({
+    name: 'easyeda_semantic_erc_validate',
+    title: 'Run semantic ERC validation',
+    description:
+      'Run semantic electrical-rule validation over a netlist with pin electrical types to detect output contention, floating inputs, power conflicts, missing power pins, missing decoupling, and voltage-domain mismatches.',
+    profile: 'core',
+    evidence: ['official-docs'],
+    risk: 'medium',
+    confirmWrite: false,
+    group: 'drc-erc',
+    version: '1.0.0',
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+    },
+    inputSchema: z.object({
+      projectId: z.string().optional(),
+      nets: z.array(semanticNetSchema),
+      devices: z.array(semanticDeviceSchema).optional(),
+      interfaces: z.array(semanticInterfaceSchema).optional(),
+    }),
+    outputSchema: z.object({
+      project_id: z.string(),
+      passed: z.boolean(),
+      error_count: z.number().int().nonnegative(),
+      warning_count: z.number().int().nonnegative(),
+      total_issues: z.number().int().nonnegative(),
+      errors: z.array(semanticIssueSchema),
+      warnings: z.array(semanticIssueSchema),
+    }),
+    handler: async (_ctx: ToolContext, params: unknown) => {
+      const parsed = params as {
+        projectId?: string;
+        nets: Array<{
+          id: string;
+          name: string;
+          type: 'power' | 'signal' | 'ground';
+          voltage?: number;
+          nodes: Array<{
+            deviceRef: string;
+            pin: string;
+            electricalType?:
+              | 'input'
+              | 'output'
+              | 'bidirectional'
+              | 'passive'
+              | 'power_input'
+              | 'power_output'
+              | 'power_source'
+              | 'open_drain'
+              | 'tri_state'
+              | 'no_connect';
+            pinName?: string;
+            expectedVoltage?: number;
+          }>;
+        }>;
+        devices?: Array<{
+          id: string;
+          ref: string;
+          category?: string;
+          pins?: Array<{
+            pin: string;
+            name?: string;
+            electricalType:
+              | 'input'
+              | 'output'
+              | 'bidirectional'
+              | 'passive'
+              | 'power_input'
+              | 'power_output'
+              | 'power_source'
+              | 'open_drain'
+              | 'tri_state'
+              | 'no_connect';
+            required?: boolean;
+            expectedNetType?: 'power' | 'signal' | 'ground';
+            expectedVoltage?: number;
+            noConnectAllowed?: boolean;
+          }>;
+          requiresDecoupling?: boolean;
+        }>;
+        interfaces?: Array<{
+          id: string;
+          name: string;
+          pinout: Array<{ pin: string; signal: string; type?: string }>;
+        }>;
+      };
+
+      const result = validateNets({
+        nets: parsed.nets,
+        devices: parsed.devices,
+        interfaces: parsed.interfaces,
+      });
+
+      const mapIssue = (issue: (typeof result.errors)[number]) => ({
+        code: issue.code,
+        message: issue.message,
+        severity: issue.severity,
+        path: issue.path,
+        net_name: issue.netName,
+        component_ref: issue.componentRef,
+        pin: issue.pin,
+        remediation_hint: issue.remediationHint,
+        details: issue.details,
+      });
+
+      const errors = result.errors.map(mapIssue);
+      const warnings = result.warnings.map(mapIssue);
+
+      return {
+        project_id: parsed.projectId ?? '',
+        passed: result.valid,
+        error_count: errors.length,
+        warning_count: warnings.length,
+        total_issues: errors.length + warnings.length,
+        errors,
+        warnings,
+      };
     },
   });
 

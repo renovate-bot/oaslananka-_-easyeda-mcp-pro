@@ -190,6 +190,135 @@ describe('DRC/ERC Tools', () => {
     expect(result?.passed).toBe(true);
   });
 
+  it('easyeda_semantic_erc_validate detects semantic ERC failures without bridge calls', async () => {
+    const tool = registry.get('easyeda_semantic_erc_validate');
+    expect(tool).toBeDefined();
+
+    const result = await tool?.handler(context, {
+      projectId: 'proj-semantic',
+      nets: [
+        {
+          id: 'pwr',
+          name: '3V3',
+          type: 'power',
+          nodes: [{ deviceRef: 'U1', pin: 'VDD' }],
+        },
+        {
+          id: 'gnd',
+          name: 'GND',
+          type: 'ground',
+          nodes: [{ deviceRef: 'U1', pin: 'GND' }],
+        },
+        {
+          id: 'sig',
+          name: 'BUS_DRV',
+          type: 'signal',
+          nodes: [
+            { deviceRef: 'U1', pin: 'OUT' },
+            { deviceRef: 'U2', pin: 'OUT' },
+          ],
+        },
+      ],
+      devices: [
+        { id: 'U1', ref: 'U1', pins: [{ pin: 'OUT', electricalType: 'output' }] },
+        { id: 'U2', ref: 'U2', pins: [{ pin: 'OUT', electricalType: 'output' }] },
+      ],
+    });
+
+    expect(bridgeCall).not.toHaveBeenCalled();
+    expect(result?.project_id).toBe('proj-semantic');
+    expect(result?.passed).toBe(false);
+    expect(result?.error_count).toBeGreaterThanOrEqual(1);
+    expect(result?.errors[0]).toMatchObject({
+      code: 'NET_OUTPUT_CONTENTION',
+      net_name: 'BUS_DRV',
+      severity: 'error',
+    });
+    expect(result?.errors[0].remediation_hint).toContain('push-pull outputs');
+  });
+
+  it('easyeda_semantic_erc_validate passes false-positive control with pull-up and decoupling', async () => {
+    const tool = registry.get('easyeda_semantic_erc_validate');
+    expect(tool).toBeDefined();
+
+    const result = await tool?.handler(context, {
+      projectId: 'proj-clean',
+      nets: [
+        {
+          id: 'pwr',
+          name: '3V3',
+          type: 'power',
+          nodes: [
+            { deviceRef: 'U1', pin: 'VDD' },
+            { deviceRef: 'R1', pin: '1' },
+            { deviceRef: 'C1', pin: '1' },
+          ],
+        },
+        {
+          id: 'gnd',
+          name: 'GND',
+          type: 'ground',
+          nodes: [
+            { deviceRef: 'U1', pin: 'GND' },
+            { deviceRef: 'C1', pin: '2' },
+          ],
+        },
+        {
+          id: 'sig',
+          name: 'I2C_SDA',
+          type: 'signal',
+          nodes: [
+            { deviceRef: 'U1', pin: 'SDA' },
+            { deviceRef: 'R1', pin: '2' },
+          ],
+        },
+      ],
+      devices: [
+        {
+          id: 'U1',
+          ref: 'U1',
+          requiresDecoupling: true,
+          pins: [
+            { pin: 'VDD', electricalType: 'power_input', required: true, expectedNetType: 'power' },
+            {
+              pin: 'GND',
+              electricalType: 'power_input',
+              required: true,
+              expectedNetType: 'ground',
+            },
+            { pin: 'SDA', electricalType: 'input' },
+          ],
+        },
+        {
+          id: 'R1',
+          ref: 'R1',
+          category: 'resistor',
+          pins: [
+            { pin: '1', electricalType: 'passive' },
+            { pin: '2', electricalType: 'passive' },
+          ],
+        },
+        {
+          id: 'C1',
+          ref: 'C1',
+          category: 'capacitor',
+          pins: [
+            { pin: '1', electricalType: 'passive' },
+            { pin: '2', electricalType: 'passive' },
+          ],
+        },
+      ],
+    });
+
+    expect(result?.passed).toBe(true);
+    expect(result?.error_count).toBe(0);
+    expect(
+      result?.warnings.filter((warning) =>
+        ['NET_FLOATING_INPUT', 'NET_MISSING_DECOUPLING'].includes(warning.code),
+      ),
+    ).toEqual([]);
+  });
+
   it('easyeda_rule_check_summary returns combined DRC+ERC summary', async () => {
     const tool = registry.get('easyeda_rule_check_summary');
     expect(tool).toBeDefined();
