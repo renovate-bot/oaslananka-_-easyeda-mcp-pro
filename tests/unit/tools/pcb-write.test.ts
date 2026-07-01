@@ -35,13 +35,134 @@ describe('PCB Write Tools', () => {
     };
   });
 
-  it('should register all 6 PCB write tools', () => {
+  it('should register all 8 PCB write tools', () => {
     expect(registry.get('easyeda_pcb_place_component')).toBeDefined();
     expect(registry.get('easyeda_pcb_add_track')).toBeDefined();
     expect(registry.get('easyeda_pcb_add_via')).toBeDefined();
     expect(registry.get('easyeda_pcb_add_zone')).toBeDefined();
     expect(registry.get('easyeda_pcb_delete_component')).toBeDefined();
     expect(registry.get('easyeda_pcb_modify_component')).toBeDefined();
+    expect(registry.get('easyeda_pcb_place_component_group')).toBeDefined();
+    expect(registry.get('easyeda_pcb_route_path_plan')).toBeDefined();
+  });
+
+  it('easyeda_pcb_place_component_group should preview without bridge calls', async () => {
+    const tool = registry.get('easyeda_pcb_place_component_group');
+
+    const result = await tool?.handler(context, {
+      mode: 'preview',
+      board: { widthMm: 60, heightMm: 40 },
+      anchor: { x: 10, y: 10 },
+      components: [{ ref: 'U1', primitiveId: 'p-u1', widthMm: 6, heightMm: 6 }],
+    });
+
+    expect(bridgeCall).not.toHaveBeenCalled();
+    expect(result?.success).toBe(true);
+    expect(result?.applied).toBe(false);
+    expect(result?.operations[0].method).toBe('pcb.modifyComponent');
+  });
+
+  it('easyeda_pcb_place_component_group should block apply without confirmation', async () => {
+    const tool = registry.get('easyeda_pcb_place_component_group');
+
+    const result = await tool?.handler(context, {
+      mode: 'apply',
+      board: { widthMm: 60, heightMm: 40 },
+      anchor: { x: 10, y: 10 },
+      components: [{ ref: 'U1', primitiveId: 'p-u1', widthMm: 6, heightMm: 6 }],
+    });
+
+    expect(bridgeCall).not.toHaveBeenCalled();
+    expect(result?.success).toBe(false);
+    expect(result?.blocked).toBe(true);
+    expect(result?.error).toContain('confirmWrite');
+  });
+
+  it('easyeda_pcb_place_component_group should apply valid placement with confirmation', async () => {
+    const tool = registry.get('easyeda_pcb_place_component_group');
+    bridgeCall.mockResolvedValue({ result: 'ok' });
+
+    const result = await tool?.handler(context, {
+      mode: 'apply',
+      confirmWrite: true,
+      board: { widthMm: 60, heightMm: 40 },
+      anchor: { x: 10, y: 10 },
+      components: [{ ref: 'U1', primitiveId: 'p-u1', widthMm: 6, heightMm: 6 }],
+    });
+
+    expect(bridgeCall).toHaveBeenCalledWith('pcb.modifyComponent', {
+      primitiveId: 'p-u1',
+      property: { x: 10, y: 10, rotation: 0, layer: 1 },
+    });
+    expect(result?.success).toBe(true);
+    expect(result?.applied).toBe(true);
+  });
+
+  it('easyeda_pcb_route_path_plan should preview without bridge calls', async () => {
+    const tool = registry.get('easyeda_pcb_route_path_plan');
+
+    const result = await tool?.handler(context, {
+      mode: 'preview',
+      netName: 'GND',
+      layer: 1,
+      widthMm: 0.4,
+      waypoints: [
+        { x: 0, y: 0 },
+        { x: 10, y: 0 },
+      ],
+    });
+
+    expect(bridgeCall).not.toHaveBeenCalled();
+    expect(result?.success).toBe(true);
+    expect(result?.path_length_mm).toBe(10);
+  });
+
+  it('easyeda_pcb_route_path_plan should block unsafe apply before bridge call', async () => {
+    const tool = registry.get('easyeda_pcb_route_path_plan');
+
+    const result = await tool?.handler(context, {
+      mode: 'apply',
+      confirmWrite: true,
+      netName: '3V3',
+      layer: 1,
+      widthMm: 0.2,
+      minWidthMm: 0.4,
+      waypoints: [
+        { x: 0, y: 0 },
+        { x: 10, y: 0 },
+      ],
+    });
+
+    expect(bridgeCall).not.toHaveBeenCalled();
+    expect(result?.success).toBe(false);
+    expect(result?.blocked).toBe(true);
+    expect(result?.issues[0].code).toBe('LAYOUT_TRACE_WIDTH_TOO_SMALL');
+  });
+
+  it('easyeda_pcb_route_path_plan should apply valid path with confirmation', async () => {
+    const tool = registry.get('easyeda_pcb_route_path_plan');
+    bridgeCall.mockResolvedValue({ result: 'track-1' });
+
+    const result = await tool?.handler(context, {
+      mode: 'apply',
+      confirmWrite: true,
+      netName: 'GND',
+      layer: 1,
+      widthMm: 0.4,
+      waypoints: [
+        { x: 0, y: 0 },
+        { x: 10, y: 0 },
+      ],
+    });
+
+    expect(bridgeCall).toHaveBeenCalledWith('pcb.addTrack', {
+      points: [0, 0, 10, 0],
+      layer: 1,
+      width: 0.4,
+      netName: 'GND',
+    });
+    expect(result?.success).toBe(true);
+    expect(result?.applied).toBe(true);
   });
 
   it('easyeda_pcb_place_component should call bridge and return success', async () => {

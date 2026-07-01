@@ -30,6 +30,8 @@ export default defineConfig({
           { text: 'BOM Sourcing', link: '/examples/bom-sourcing' },
           { text: 'Manufacturing Review', link: '/examples/manufacturing-review' },
           { text: 'Power Tree Analyzer', link: '/power-tree' },
+          { text: 'High-Level PCB Layout', link: '/high-level-pcb-layout' },
+          { text: 'High-Level PCB Layout', link: '/high-level-pcb-layout' },
           { text: 'Claude Prompts', link: '/examples/claude-prompts' },
         ],
       },
