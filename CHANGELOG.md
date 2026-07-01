@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.8.0](https://github.com/oaslananka/easyeda-mcp-pro/compare/easyeda-mcp-pro-v0.7.0...easyeda-mcp-pro-v0.8.0) (2026-07-01)
+
+
+### Features
+
+* **vendors:** harden BOM sourcing failure handling ([0f48a29](https://github.com/oaslananka/easyeda-mcp-pro/commit/0f48a292b9e51224d9b3377205712fd1071401e9))
+* **vendors:** harden BOM sourcing failure handling ([b27c264](https://github.com/oaslananka/easyeda-mcp-pro/commit/b27c264a2070ad2114fd24d1578339c56721bf68))
+
 ## [0.7.0](https://github.com/oaslananka/easyeda-mcp-pro/compare/easyeda-mcp-pro-v0.6.10...easyeda-mcp-pro-v0.7.0) (2026-07-01)
 
 
