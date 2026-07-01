@@ -35,6 +35,73 @@ describe('Export Tools', () => {
     };
   });
 
+  it('easyeda_export_gerbers warns with production review findings but still exports in warn mode', async () => {
+    const tool = registry.get('easyeda_export_gerbers');
+    expect(tool).toBeDefined();
+
+    bridgeCall.mockResolvedValue({ artifactPath: 'artifacts/gerbers.zip', fileCount: 12 });
+
+    const result = await tool?.handler(context, {
+      projectId: 'proj-123',
+      productionReview: {
+        mode: 'warn',
+        boardData: {
+          hasOutline: true,
+          hasLayerStack: true,
+          hasNetClasses: true,
+          hasClearanceRules: true,
+          hasKeepoutAreas: true,
+          hasPlacementZones: true,
+          hasFiducials: true,
+          mountingHoleCount: 4,
+          manufacturingProcess: 'standard',
+          hasQuantity: true,
+          hasDrillFile: false,
+        },
+      },
+    });
+
+    expect(bridgeCall).toHaveBeenCalledWith('board.exportGerbers', {
+      projectId: 'proj-123',
+      drillFormat: undefined,
+      excludeLayer: undefined,
+      ledPanel: undefined,
+    });
+    expect(result?.exported).toBe(true);
+    expect(result?.production_review?.passed).toBe(false);
+    expect(result?.production_review?.errors[0].code).toBe('PCB_DRILL_FILE_MISSING');
+  });
+
+  it('easyeda_export_gerbers blocks before bridge export when production review is in block mode', async () => {
+    const tool = registry.get('easyeda_export_gerbers');
+    expect(tool).toBeDefined();
+
+    const result = await tool?.handler(context, {
+      projectId: 'proj-123',
+      productionReview: {
+        mode: 'block',
+        boardData: {
+          hasOutline: true,
+          hasLayerStack: true,
+          hasNetClasses: true,
+          hasClearanceRules: true,
+          hasKeepoutAreas: true,
+          hasPlacementZones: true,
+          hasFiducials: true,
+          mountingHoleCount: 4,
+          manufacturingProcess: 'standard',
+          hasQuantity: true,
+          hasDrillFile: false,
+        },
+      },
+    });
+
+    expect(bridgeCall).not.toHaveBeenCalled();
+    expect(result?.exported).toBe(false);
+    expect(result?.blocked_by_production_review).toBe(true);
+    expect(result?.production_review?.blocked).toBe(true);
+  });
+
   it('easyeda_export_pick_place should call correct bridge method and return result', async () => {
     const tool = registry.get('easyeda_export_pick_place');
     expect(tool).toBeDefined();
