@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.10.0](https://github.com/oaslananka/easyeda-mcp-pro/compare/easyeda-mcp-pro-v0.9.0...easyeda-mcp-pro-v0.10.0) (2026-07-01)
+
+
+### Features
+
+* **pcb:** add production review rules ([37aaf04](https://github.com/oaslananka/easyeda-mcp-pro/commit/37aaf044d901aa67e5aea21870d73bb52a6425d2))
+* **pcb:** add production review rules ([b35f7a6](https://github.com/oaslananka/easyeda-mcp-pro/commit/b35f7a6e1be42f2ded76bce61f3facbdb4ecc8ca))
+
 ## [0.9.0](https://github.com/oaslananka/easyeda-mcp-pro/compare/easyeda-mcp-pro-v0.8.0...easyeda-mcp-pro-v0.9.0) (2026-07-01)
 
 
