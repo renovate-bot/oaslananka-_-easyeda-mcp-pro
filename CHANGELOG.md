@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.6.8](https://github.com/oaslananka/easyeda-mcp-pro/compare/easyeda-mcp-pro-v0.6.7...easyeda-mcp-pro-v0.6.8) (2026-07-01)
+
+
+### Bug Fixes
+
+* **extension:** release marketplace-ready package metadata ([9d770fa](https://github.com/oaslananka/easyeda-mcp-pro/commit/9d770fa2a5eec601d92173a0afdd5380ad63168e))
+* **extension:** release marketplace-ready package metadata ([9c6f26e](https://github.com/oaslananka/easyeda-mcp-pro/commit/9c6f26e584c1085c7721f3567be084259f18c13c))
+
 ## [0.6.7](https://github.com/oaslananka/easyeda-mcp-pro/compare/easyeda-mcp-pro-v0.6.6...easyeda-mcp-pro-v0.6.7) (2026-06-30)
 
 
