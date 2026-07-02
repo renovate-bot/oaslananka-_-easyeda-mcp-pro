@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.16.0](https://github.com/oaslananka/easyeda-mcp-pro/compare/easyeda-mcp-pro-v0.15.0...easyeda-mcp-pro-v0.16.0) (2026-07-02)
+
+
+### Features
+
+* add component quality scoring ([5a02506](https://github.com/oaslananka/easyeda-mcp-pro/commit/5a025067d757cf073790074a6d7048cf77c73ad8))
+* add component quality scoring ([421622d](https://github.com/oaslananka/easyeda-mcp-pro/commit/421622d8934fb51f4eb01286aee26e5e98a30f59))
+
 ## [0.15.0](https://github.com/oaslananka/easyeda-mcp-pro/compare/easyeda-mcp-pro-v0.14.0...easyeda-mcp-pro-v0.15.0) (2026-07-02)
 
 
