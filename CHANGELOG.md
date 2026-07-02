@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.17.0](https://github.com/oaslananka/easyeda-mcp-pro/compare/easyeda-mcp-pro-v0.16.0...easyeda-mcp-pro-v0.17.0) (2026-07-02)
+
+
+### Features
+
+* add quote workflow gate ([016b5c2](https://github.com/oaslananka/easyeda-mcp-pro/commit/016b5c258afef7dba6ce9268746d6c68032a846a))
+* add quote workflow gate ([18f6e52](https://github.com/oaslananka/easyeda-mcp-pro/commit/18f6e52c711e633b92c3d76a0bd5f52520891853))
+
 ## [0.16.0](https://github.com/oaslananka/easyeda-mcp-pro/compare/easyeda-mcp-pro-v0.15.0...easyeda-mcp-pro-v0.16.0) (2026-07-02)
 
 
