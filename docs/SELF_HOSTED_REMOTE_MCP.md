@@ -1,6 +1,8 @@
 # Self-hosted Remote MCP setup
 
-Self-hosted Remote MCP lets an operator expose EasyEDA MCP Pro through their own domain, tunnel, VPS, or reverse proxy. This mode is for power users and private deployments that need a public MCP endpoint without using the hosted gateway.
+Self-hosted Remote MCP lets an operator expose EasyEDA MCP Pro through their own domain, tunnel,
+VPS, or reverse proxy. This mode is for power users and private deployments that need a public MCP
+endpoint without using the hosted gateway.
 
 ## Architecture
 
@@ -20,19 +22,40 @@ Open EasyEDA Web project
 
 ## Minimum safe configuration
 
+Use the implemented HTTP/OAuth settings below for the current server runtime:
+
 ```env
 TRANSPORT=http
 HTTP_HOST=127.0.0.1
 HTTP_PORT=3000
-PUBLIC_BASE_URL=https://mcp.user-domain.example
-AUTH_REQUIRED=true
-PAIRING_REQUIRED=true
+ALLOWED_ORIGINS=https://mcp.user-domain.example
+OAUTH_ENABLED=true
+OAUTH_ISSUER=https://auth.example.com
+OAUTH_AUDIENCE=https://mcp.user-domain.example/mcp
+OAUTH_JWKS_URI=https://auth.example.com/.well-known/jwks.json
+OAUTH_REQUIRED_SCOPES=easyeda.read
+```
+
+The server exposes protected-resource metadata for remote clients at:
+
+```text
+https://mcp.user-domain.example/.well-known/oauth-protected-resource/mcp
+```
+
+The local server should bind to localhost behind the tunnel or reverse proxy. Do not bind to all
+interfaces unless the host firewall, TLS, auth, and origin policy are explicitly configured.
+
+## Planned relay controls
+
+The following settings are remote-relay design targets and should remain documented as planned until
+the relay runtime is implemented:
+
+```env
 REMOTE_MODE=self_hosted
+PAIRING_REQUIRED=true
 REQUIRE_APPROVAL_FOR_WRITE=true
 REQUIRE_APPROVAL_FOR_EXPORT=true
 ```
-
-The local server should bind to localhost behind the tunnel or reverse proxy. Do not bind to all interfaces unless the host firewall, TLS, auth, and origin policy are explicitly configured.
 
 ## Cloudflare Tunnel example
 
@@ -59,8 +82,8 @@ Before exposing a self-hosted endpoint:
 
 - [ ] TLS is enabled at the public endpoint.
 - [ ] Auth is enabled.
-- [ ] Pairing is required.
-- [ ] Write/export approvals are enabled.
+- [ ] Pairing is required before write/export once relay mode is enabled.
+- [ ] Write/export approvals are enabled before relay write/export is advertised.
 - [ ] The local MCP server is not anonymously exposed.
 - [ ] The extension shows the active project before approving changes.
 - [ ] Logs are redacted and stored safely.
@@ -77,4 +100,5 @@ Before exposing a self-hosted endpoint:
 
 ## Security warning
 
-A tunnel only makes a local service reachable. It does not provide authorization by itself. Production self-hosted endpoints must use auth, pairing, approval policy, and safe logging.
+A tunnel only makes a local service reachable. It does not provide authorization by itself.
+Production self-hosted endpoints must use auth, pairing, approval policy, and safe logging.
