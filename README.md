@@ -7,9 +7,6 @@
 </p>
 
 <p>
-  <a href="https://github.com/oaslananka/easyeda-mcp-pro/actions/workflows/ci.yml">
-    <img src="https://github.com/oaslananka/easyeda-mcp-pro/actions/workflows/ci.yml/badge.svg" alt="CI status" />
-  </a>
   <a href="https://www.npmjs.com/package/easyeda-mcp-pro">
     <img src="https://img.shields.io/npm/v/easyeda-mcp-pro.svg?logo=npm" alt="npm version" />
   </a>
@@ -19,8 +16,23 @@
   <a href="https://www.npmjs.com/package/easyeda-mcp-pro">
     <img src="https://img.shields.io/node/v/easyeda-mcp-pro" alt="supported Node.js version" />
   </a>
-  <a href="https://opensource.org/licenses/MIT">
-    <img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT" />
+  <a href="LICENSE">
+    <img src="https://img.shields.io/npm/l/easyeda-mcp-pro.svg" alt="license" />
+  </a>
+  <a href="https://pnpm.io/">
+    <img src="https://img.shields.io/badge/pnpm-11.5.1-blue.svg" alt="pnpm" />
+  </a>
+</p>
+
+<p>
+  <a href="https://github.com/oaslananka/easyeda-mcp-pro/actions/workflows/ci.yml">
+    <img src="https://github.com/oaslananka/easyeda-mcp-pro/actions/workflows/ci.yml/badge.svg" alt="CI status" />
+  </a>
+  <a href="https://github.com/oaslananka/easyeda-mcp-pro/actions/workflows/deploy-docs.yml">
+    <img src="https://github.com/oaslananka/easyeda-mcp-pro/actions/workflows/deploy-docs.yml/badge.svg" alt="Docs status" />
+  </a>
+  <a href="https://github.com/oaslananka/easyeda-mcp-pro/security/policy">
+    <img src="https://img.shields.io/badge/security-policy-blue" alt="Security policy" />
   </a>
   <a href="https://www.bestpractices.dev/projects/13406">
     <img src="https://www.bestpractices.dev/projects/13406/badge" alt="OpenSSF Best Practices" />
@@ -28,12 +40,13 @@
   <a href="https://scorecard.dev/viewer/?uri=github.com/oaslananka/easyeda-mcp-pro">
     <img src="https://api.scorecard.dev/projects/github.com/oaslananka/easyeda-mcp-pro/badge" alt="OpenSSF Scorecard" />
   </a>
-  <a href="https://github.com/oaslananka/easyeda-mcp-pro/security/policy">
-    <img src="https://img.shields.io/badge/security-policy-blue" alt="Security policy" />
-  </a>
-  <a href="https://deepwiki.com/oaslananka/easyeda-mcp-pro">
-    <img src="https://deepwiki.com/badge.svg" alt="Ask DeepWiki" />
-  </a>
+</p>
+
+<p>
+  <a href="https://deepwiki.com/oaslananka/easyeda-mcp-pro">Ask DeepWiki</a> ·
+  <a href="docs/ROADMAP.md">Roadmap</a> ·
+  <a href="docs/OPENSSF_BEST_PRACTICES.md">OpenSSF evidence</a> ·
+  <a href="docs/SECURITY_ASSURANCE_CASE.md">Security assurance case</a>
 </p>
 
 <p>
@@ -42,12 +55,24 @@
   ·
   <a href="docs/vendor-terms.md">Vendor Terms and Unsupported Workflows</a>
   ·
-  <a href="docs/OPENSSF_BEST_PRACTICES.md">OpenSSF Best Practices</a>
-  ·
   <a href="docs/REMOTE_MCP_MODES.md">Remote MCP Modes</a>
 </p>
 
+<p>
+  <a href="https://www.buymeacoffee.com/oaslananka">
+    <img src="https://img.buymeacoffee.com/button-api/?text=Buy%20me%20a%20coffee&emoji=%E2%98%95&slug=oaslananka&button_colour=FFDD00&font_colour=000000&font_family=Inter&outline_colour=000000&coffee_colour=ffffff" alt="Buy me a coffee" />
+  </a>
+</p>
+
 </div>
+
+---
+
+## Trust and Supply Chain
+
+easyeda-mcp-pro keeps its public OpenSSF Best Practices evidence in [`docs/OPENSSF_BEST_PRACTICES.md`](docs/OPENSSF_BEST_PRACTICES.md) and its security assurance case in [`docs/SECURITY_ASSURANCE_CASE.md`](docs/SECURITY_ASSURANCE_CASE.md). The header badges link to workflow-backed signals only: CI, generated docs deployment, the project security policy, OpenSSF Best Practices self-certification, and the OpenSSF Scorecard. Release integrity evidence (npm provenance, signed-release status) is tracked in [`docs/RELEASE_VERIFICATION.md`](docs/RELEASE_VERIFICATION.md).
+
+**Current OpenSSF Best Practices status:** Passing (100%) — see [live badge](https://www.bestpractices.dev/projects/13406) and [Silver evidence map](docs/OPENSSF_BEST_PRACTICES.md#silver-evidence) for in-progress Silver criteria.
 
 ---
 
@@ -646,6 +671,10 @@ The schematic write APIs use EasyEDA Pro extension APIs that EasyEDA currently m
 - **stdio** (default): Standard MCP transport — works with Claude Desktop, Cursor, and most MCP clients
 - **HTTP**: Streamable HTTP transport with `/healthz`, `/readyz`, `/mcp` endpoints, CORS, and optional OAuth — suitable for remote deployments
 
+### Deployment modes
+
+Beyond local stdio/HTTP, the server supports a hosted remote runtime (gateway, session router, and approval-scoped relay under `src/remote/`) for managed connector deployments such as Claude Web or ChatGPT app integrations, plus a self-hosted remote mode for user-managed endpoints. See [Remote MCP Modes](docs/REMOTE_MCP_MODES.md) for the full mode matrix and network/security boundaries of each.
+
 ### Bridge extension
 
 ```bash
@@ -685,7 +714,7 @@ pnpm typecheck             # TypeScript
 pnpm lint                  # ESLint
 
 # Test
-pnpm test                  # Vitest (497 tests across 32 files)
+pnpm test                  # Vitest (804 tests across 66 files)
 pnpm test:coverage         # With coverage report
 
 # Golden E2E fixture smoke tests are included in `pnpm test`
@@ -725,20 +754,27 @@ src/
 ├── index.ts                 # Entry point (stdio or HTTP)
 ├── bridge/                  # EasyEDA Pro WebSocket bridge protocol
 │   ├── manager.ts, protocol.ts, types.ts
-├── config/                  # Environment configuration
-│   ├── env.ts, profiles.ts, feature-flags.ts
+├── cli/                     # Client auto-setup (setup/extension CLI commands)
+├── config/                  # Environment, tool profiles, feature flags
+│   ├── env.ts, profiles.ts, feature-flags.ts, version.ts
+├── remote/                  # Hosted/self-hosted remote MCP gateway, session router, scopes
 ├── schemas/                 # Shared Zod schemas
 ├── server/                  # MCP server core
-│   ├── factory.ts, errors.ts
+│   ├── factory.ts, resources-prompts.ts
 │   └── transports/
-│       └── http.ts          # HTTP/Streamable HTTP transport
+│       ├── http.ts                    # HTTP/Streamable HTTP transport
+│       └── oauth-resource-metadata.ts
 ├── storage/                 # Node.js sqlite storage (cache, artifacts)
-├── tools/                   # 50 default MCP tool definitions (6 groups)
-│   ├── register.ts, registry.ts, types.ts
-│   ├── L0_diagnostics.ts, L1_schematic.ts, L1_bom.ts
-│   ├── L1_drc_erc.ts, L1_board.ts, L1_export.ts
-└── vendors/                 # Supplier API clients
-    ├── lcsc/, jlcpcb/, mouser/, digikey/
+├── tools/                   # Up to 60 profile-gated MCP tool definitions
+│   ├── register.ts, registry.ts, types.ts, transaction.ts
+│   ├── L0_diagnostics_core.ts, L0_diagnostics_api.ts
+│   ├── L1_schematic_read.ts, L1_schematic_write.ts
+│   ├── L1_bom_core.ts, L1_bom_sourcing.ts
+│   └── L1_drc_erc.ts, L1_board.ts, L1_export.ts, L1_pcb_constraints.ts, L1_pcb_write.ts
+├── vendors/                 # Supplier API clients (lcsc/, jlcpcb/, mouser/, digikey/)
+└── ...                      # circuit, pcb-layout, net-validation, power-tree, production-qa,
+                              # quote-gating, safety, observability, catalog, bom-quality,
+                              # export-manifest, live, easyeda-runtime
 
 easyeda-bridge-extension/    # EasyEDA Pro bridge extension workspace package
 ```
@@ -774,13 +810,7 @@ This repository uses automated workflows to manage dependencies and releases:
 
 ## Support the project
 
-If this project helps you save time while working with EasyEDA Pro, BOM workflows, or MCP integrations, you can support ongoing development here:
-
-<p align="left">
-  <a href="https://www.buymeacoffee.com/oaslananka">
-    <img src="https://img.buymeacoffee.com/button-api/?text=Buy%20me%20a%20coffee&emoji=%E2%98%95&slug=oaslananka&button_colour=FFDD00&font_colour=000000&font_family=Inter&outline_colour=000000&coffee_colour=ffffff" alt="Buy me a coffee" />
-  </a>
-</p>
+If this project helps you save time while working with EasyEDA Pro, BOM workflows, or MCP integrations, you can support ongoing development via the **Buy me a coffee** button at the top of this README.
 
 ---
 
