@@ -67,6 +67,9 @@ const METHOD_LIST: readonly string[] = [
   'pcb.addZone',
   'pcb.deleteComponent',
   'pcb.exportRouteContext',
+  'pcb.listComponents',
+  'pcb.listTracks',
+  'pcb.listVias',
   'pcb.modifyComponent',
   'pcb.placeComponent',
   'project.export',
@@ -214,34 +217,109 @@ function normalizeWireLine(line: unknown): Array<{ x: number; y: number }> {
  * overlapping "highway" columns/rows. Returns the first collision found, or
  * null if the runtime doesn't expose wire introspection or none is found.
  */
+/** Pin coordinates from listNetsApi()'s coordinate-fallback nodes, which carry
+ *  x/y for pins connected via a wire touching their coordinate (the primary
+ *  mechanism since connect_pin_to_net started drawing real wire stubs). */
+async function collectPinCoordinateNets(): Promise<Map<string, string>> {
+  const coordToNet = new Map<string, string>();
+  try {
+    const netlistData = (await listNetsApi()) as SchematicNetEntry[];
+    for (const net of netlistData) {
+      for (const node of net.nodes) {
+        if (typeof node.x === 'number' && typeof node.y === 'number') {
+          coordToNet.set(pointKey({ x: node.x, y: node.y }), net.netName);
+        }
+      }
+    }
+  } catch (e) {
+    logRecoverableError('failed to build pin coordinate map for net-collision check', e);
+  }
+  return coordToNet;
+}
+
+/** Net flag/port coordinates read directly from components — these aren't in
+ *  listNetsApi()'s per-component node list (they have no designator) but do
+ *  carry both a coordinate and a net name via readComponentType/readComponentNet. */
+async function collectFlagPortCoordinateNets(): Promise<Map<string, string>> {
+  const coordToNet = new Map<string, string>();
+  const schCompClass = readFirstPath<any>([
+    'SCH_PrimitiveComponent',
+    'SCH_PrimitiveComponent3',
+    'sch_PrimitiveComponent',
+  ]);
+  if (!schCompClass || typeof schCompClass.getAll !== 'function') return coordToNet;
+  try {
+    const allComps = (await schCompClass.getAll(undefined, true)) || [];
+    for (const c of allComps) {
+      const type = readComponentType(c);
+      if (type !== 'netflag' && type !== 'netport') continue;
+      const netName = readComponentNet(c);
+      const point = readPrimitivePoint(c);
+      if (netName && point) coordToNet.set(pointKey(point), netName);
+    }
+  } catch (e) {
+    logRecoverableError('failed to read net flags/ports for net-collision check', e);
+  }
+  return coordToNet;
+}
+
+/**
+ * Coordinate -> netName for every pin/flag/port this bridge can positively
+ * attribute to a specific net, used to extend the wire-drawing collision
+ * guard beyond wire-vs-wire (see findForeignNetCollision).
+ * Pins connected only via the legacy stamped OtherProperty.net (no x/y) are
+ * NOT included — there is no coordinate to collide with.
+ */
+async function buildForeignConnectivityMap(): Promise<Map<string, string>> {
+  const [pinCoords, flagCoords] = await Promise.all([
+    collectPinCoordinateNets(),
+    collectFlagPortCoordinateNets(),
+  ]);
+  return new Map([...pinCoords, ...flagCoords]);
+}
+
 async function findForeignNetCollision(
   points: Array<{ x: number; y: number }>,
   netName: string,
-): Promise<{ x: number; y: number; foreignNet: string } | null> {
+): Promise<{ x: number; y: number; foreignNet: string; kind: 'wire' | 'pin_or_flag' } | null> {
   if (!netName || points.length === 0) return null;
   const schWireClass = readFirstPath<any>(['SCH_PrimitiveWire', 'sch_PrimitiveWire']);
-  if (!schWireClass || typeof schWireClass.getAll !== 'function') return null;
+  if (schWireClass && typeof schWireClass.getAll === 'function') {
+    let wires: unknown[] = [];
+    try {
+      wires = (await schWireClass.getAll()) || [];
+    } catch (e) {
+      logRecoverableError('failed to read existing wires for net-collision check', e);
+      wires = [];
+    }
 
-  let wires: unknown[] = [];
-  try {
-    wires = (await schWireClass.getAll()) || [];
-  } catch (e) {
-    logRecoverableError('failed to read existing wires for net-collision check', e);
-    return null;
-  }
-
-  for (const wire of wires) {
-    const wireNet = String(safeGetState(wire, 'Net') ?? '');
-    if (!wireNet || wireNet === netName) continue;
-    const wirePts = normalizeWireLine(safeGetState(wire, 'Line'));
-    for (const p of points) {
-      for (const wp of wirePts) {
-        if (wp.x === p.x && wp.y === p.y) {
-          return { x: p.x, y: p.y, foreignNet: wireNet };
+    for (const wire of wires) {
+      const wireNet = String(safeGetState(wire, 'Net') ?? '');
+      if (!wireNet || wireNet === netName) continue;
+      const wirePts = normalizeWireLine(safeGetState(wire, 'Line'));
+      for (const p of points) {
+        for (const wp of wirePts) {
+          if (wp.x === p.x && wp.y === p.y) {
+            return { x: p.x, y: p.y, foreignNet: wireNet, kind: 'wire' };
+          }
         }
       }
     }
   }
+
+  // Wire-vs-wire found nothing; also check pin/net-flag/net-port coordinates
+  // directly, since EasyEDA merges by coordinate regardless of primitive
+  // type — a wire landing exactly on a foreign pin or flag shorts it just
+  // like landing on a foreign wire does, and the check above never saw it
+  // (the foreign pin has no wire of its own at that point).
+  const foreignMap = await buildForeignConnectivityMap();
+  for (const p of points) {
+    const foreignNet = foreignMap.get(pointKey(p));
+    if (foreignNet && foreignNet !== netName) {
+      return { x: p.x, y: p.y, foreignNet, kind: 'pin_or_flag' };
+    }
+  }
+
   return null;
 }
 
@@ -1287,7 +1365,10 @@ async function getDimensionsApi(): Promise<unknown> {
 async function getFeaturesApi(): Promise<unknown> {
   const globalObj = tk.getGlobal();
   const pcbViaClass = readPath<any>(globalObj, 'pcb_PrimitiveVia');
-  const pcbTrackClass = readPath<any>(globalObj, 'pcb_PrimitiveTrack');
+  // Tracks are PCB_PrimitiveLine segments (confirmed live: PCB_PrimitivePolyline
+  // never accepts a valid create() call). 'pcb_PrimitiveTrack' does not exist in
+  // the runtime at all, so this count was always silently 0.
+  const pcbTrackClass = readPath<any>(globalObj, 'pcb_PrimitiveLine');
   const pcbPadClass = readPath<any>(globalObj, 'pcb_PrimitivePad');
   const pcbPourClass = readPath<any>(globalObj, 'pcb_PrimitivePour');
   const pcbCompClass = readPath<any>(globalObj, 'pcb_PrimitiveComponent');
@@ -1345,6 +1426,155 @@ async function getFeaturesApi(): Promise<unknown> {
     pads: padsCount,
     components: compsCount,
   };
+}
+
+/**
+ * Classes pcbDeletePrimitivesApi checks, in lookup order. Confirmed live
+ * (2026-07-07): PCB_PrimitiveComponent.delete() returns `true` for ANY id,
+ * including ids belonging to other primitive types or ids that don't exist
+ * at all — it does not validate ownership. The previous pcb.deleteComponent
+ * implementation called only this method, so deleting a via or track
+ * primitiveId silently did nothing while reporting success. PCB_Primitive's
+ * own getPrimitiveTypeByPrimitiveId() is an empty stub in this runtime
+ * (`async getPrimitiveTypeByPrimitiveId(t){}`) and cannot be used to route
+ * by type, so each candidate class's real membership is checked directly via
+ * getAllPrimitiveId() before calling its delete().
+ */
+const PCB_DELETABLE_CLASSES = [
+  'PCB_PrimitiveComponent',
+  'PCB_PrimitiveVia',
+  'PCB_PrimitiveLine',
+  'PCB_PrimitivePad',
+  'PCB_PrimitivePolyline',
+  'PCB_PrimitivePour',
+  'PCB_PrimitiveArc',
+  'PCB_PrimitiveAttribute',
+  'PCB_PrimitiveDimension',
+  'PCB_PrimitiveFill',
+  'PCB_PrimitiveImage',
+  'PCB_PrimitiveObject',
+  'PCB_PrimitivePoured',
+  'PCB_PrimitiveRegion',
+  'PCB_PrimitiveString',
+] as const;
+
+async function pcbDeletePrimitivesApi(
+  primitiveIds: string[],
+): Promise<{ deleted: string[]; notFound: string[] }> {
+  const remaining = new Set(primitiveIds);
+  const deleted: string[] = [];
+
+  for (const className of PCB_DELETABLE_CLASSES) {
+    if (remaining.size === 0) break;
+    const cls = readFirstPath<any>([className]);
+    if (!cls || typeof cls.getAllPrimitiveId !== 'function' || typeof cls.delete !== 'function') {
+      continue;
+    }
+    let ownedIds: Set<string>;
+    try {
+      ownedIds = new Set((await cls.getAllPrimitiveId()) ?? []);
+    } catch (e) {
+      logRecoverableError(`pcb.deleteComponent: ${className}.getAllPrimitiveId failed`, e);
+      continue;
+    }
+    const matches = [...remaining].filter((id) => ownedIds.has(id));
+    if (matches.length === 0) continue;
+    try {
+      await cls.delete(matches);
+      for (const id of matches) {
+        remaining.delete(id);
+        deleted.push(id);
+      }
+    } catch (e) {
+      logRecoverableError(`pcb.deleteComponent: ${className}.delete failed`, e);
+    }
+  }
+
+  return { deleted, notFound: [...remaining] };
+}
+
+/**
+ * PCB readback: list placed components, tracks, and vias. Field names below
+ * are taken from getState_* getters observed live on real primitives
+ * (created via the fixed pcb.addVia/pcb.addTrack and a manually-placed
+ * footprint) — not guessed, unlike the schematic reflection-based readers.
+ * Requires an active/focused PCB tab in EasyEDA Pro; DMT_Pcb.getCurrentPcbInfo()
+ * returns null otherwise and these calls will return an empty list rather
+ * than throw, since "no PCB open" is a normal state, not an error.
+ */
+async function pcbListComponentsApi(limit?: number, offset = 0): Promise<unknown> {
+  const pcbCompClass = readFirstPath<any>(['PCB_PrimitiveComponent', 'pcb_PrimitiveComponent']);
+  if (!pcbCompClass || typeof pcbCompClass.getAll !== 'function') {
+    return { total: 0, items: [] };
+  }
+  const all = (await pcbCompClass.getAll()) || [];
+  const total = all.length;
+  const start = Math.max(0, offset);
+  const end = typeof limit === 'number' ? start + Math.max(1, limit) : undefined;
+  const items = all.slice(start, end).map((c: any) => {
+    const footprint = safeGetState(c, 'Footprint') as Record<string, unknown> | undefined;
+    const component = safeGetState(c, 'Component') as Record<string, unknown> | undefined;
+    return {
+      primitiveId: safeGetState(c, 'PrimitiveId') ?? '',
+      designator: safeGetState(c, 'Designator') ?? '',
+      footprintName: footprint?.name ?? '',
+      footprintUuid: footprint?.uuid ?? '',
+      footprintLibraryUuid: footprint?.libraryUuid ?? '',
+      deviceName: component?.name ?? '',
+      x: safeGetState(c, 'X'),
+      y: safeGetState(c, 'Y'),
+      rotation: safeGetState(c, 'Rotation'),
+      layer: safeGetState(c, 'Layer'),
+      locked: safeGetState(c, 'PrimitiveLock') ?? false,
+    };
+  });
+  return { total, items };
+}
+
+async function pcbListTracksApi(limit?: number, offset = 0): Promise<unknown> {
+  // Tracks are PCB_PrimitiveLine segments — see the pcb.addTrack case for why
+  // PCB_PrimitivePolyline is not used (its create() never resolved live).
+  const pcbLineClass = readFirstPath<any>(['PCB_PrimitiveLine', 'pcb_PrimitiveLine']);
+  if (!pcbLineClass || typeof pcbLineClass.getAll !== 'function') {
+    return { total: 0, items: [] };
+  }
+  const all = (await pcbLineClass.getAll()) || [];
+  const total = all.length;
+  const start = Math.max(0, offset);
+  const end = typeof limit === 'number' ? start + Math.max(1, limit) : undefined;
+  const items = all.slice(start, end).map((l: any) => ({
+    primitiveId: safeGetState(l, 'PrimitiveId') ?? '',
+    net: safeGetState(l, 'Net') ?? '',
+    layer: safeGetState(l, 'Layer'),
+    startX: safeGetState(l, 'StartX'),
+    startY: safeGetState(l, 'StartY'),
+    endX: safeGetState(l, 'EndX'),
+    endY: safeGetState(l, 'EndY'),
+    width: safeGetState(l, 'LineWidth'),
+    locked: safeGetState(l, 'PrimitiveLock') ?? false,
+  }));
+  return { total, items };
+}
+
+async function pcbListViasApi(limit?: number, offset = 0): Promise<unknown> {
+  const pcbViaClass = readFirstPath<any>(['PCB_PrimitiveVia', 'pcb_PrimitiveVia']);
+  if (!pcbViaClass || typeof pcbViaClass.getAll !== 'function') {
+    return { total: 0, items: [] };
+  }
+  const all = (await pcbViaClass.getAll()) || [];
+  const total = all.length;
+  const start = Math.max(0, offset);
+  const end = typeof limit === 'number' ? start + Math.max(1, limit) : undefined;
+  const items = all.slice(start, end).map((v: any) => ({
+    primitiveId: safeGetState(v, 'PrimitiveId') ?? '',
+    net: safeGetState(v, 'Net') ?? '',
+    x: safeGetState(v, 'X'),
+    y: safeGetState(v, 'Y'),
+    holeDiameter: safeGetState(v, 'HoleDiameter'),
+    diameter: safeGetState(v, 'Diameter'),
+    locked: safeGetState(v, 'PrimitiveLock') ?? false,
+  }));
+  return { total, items };
 }
 
 async function generateBomApi(params: any): Promise<unknown> {
@@ -1493,11 +1723,12 @@ async function connectPinToNetImpl(
 
   const collision = await findForeignNetCollision(points, netName);
   if (collision) {
+    const collidedWith = collision.kind === 'wire' ? 'an existing wire' : 'a pin or net flag/port';
     throw newBridgeError(
       'NET_COLLISION',
       `Refusing to connect pin "${pinNumber}" on "${primitiveId}" to net "${netName}": point ` +
-        `(${collision.x}, ${collision.y}) coincides with an existing wire on net ` +
-        `"${collision.foreignNet}". EasyEDA Pro auto-merges wires that share a coordinate, ` +
+        `(${collision.x}, ${collision.y}) coincides with ${collidedWith} on net ` +
+        `"${collision.foreignNet}". EasyEDA Pro auto-merges primitives that share a coordinate, ` +
         'which would silently short these two nets together.',
       `Retry with a different stubLength, or route this connection manually with schematic.addWire.`,
     );
@@ -1645,6 +1876,78 @@ async function runDrcCheck(classPaths: string[]): Promise<{
   };
 }
 
+/**
+ * Find schematic pins whose (designator, pinNumber) does not appear in any
+ * inferred net's node list. Shared by schematic.validateNetlist and the ERC
+ * enhancement in design.erc — see the comment at validateNetlist's call site
+ * for why connectivity is read from listNetsApi()'s authoritative net data
+ * rather than by re-reading each pin's OtherProperty.net.
+ */
+function buildConnectedNodeSet(netlistData: SchematicNetEntry[]): Set<string> {
+  const connectedNodes = new Set<string>();
+  for (const n of netlistData) {
+    for (const node of n.nodes || []) {
+      connectedNodes.add(`${node.component} ${node.pin}`);
+    }
+  }
+  return connectedNodes;
+}
+
+async function collectFloatingPinsForComponent(
+  component: any,
+  ref: string,
+  primitiveId: string,
+  connectedNodes: Set<string>,
+): Promise<Array<{ primitiveId: string; designator: string; pinNumber: string }>> {
+  const floating: Array<{ primitiveId: string; designator: string; pinNumber: string }> = [];
+  try {
+    const pins = await component.getAllPins();
+    for (const p of pins || []) {
+      if (typeof p.getState_PinNumber !== 'function') continue;
+      const pinNum = String(p.getState_PinNumber());
+      if (!connectedNodes.has(`${ref} ${pinNum}`)) {
+        floating.push({ primitiveId: primitiveId || ref, designator: ref, pinNumber: pinNum });
+      }
+    }
+  } catch {
+    // skip component
+  }
+  return floating;
+}
+
+async function findFloatingPinsApi(): Promise<{
+  floatingPins: Array<{ primitiveId: string; designator: string; pinNumber: string }>;
+  partRefs: string[];
+}> {
+  const netlistData = (await listNetsApi()) as SchematicNetEntry[];
+  const connectedNodes = buildConnectedNodeSet(netlistData);
+  const floatingPins: Array<{ primitiveId: string; designator: string; pinNumber: string }> = [];
+  const partRefs = new Set<string>();
+  const schCompClass = readFirstPath<any>([
+    'SCH_PrimitiveComponent',
+    'SCH_PrimitiveComponent3',
+    'sch_PrimitiveComponent',
+  ]);
+  if (!schCompClass || typeof schCompClass.getAll !== 'function') {
+    return { floatingPins, partRefs: [] };
+  }
+  const allComps = (await schCompClass.getAll(undefined, true)) || [];
+  for (const c of allComps) {
+    const ref = typeof c.getState_Designator === 'function' ? c.getState_Designator() : '';
+    // Skip primitives without a designator (title block, net flags, net
+    // ports, net labels): they are not schematic parts and have no pins
+    // to treat as floating, and counting them inflated the tally.
+    if (!ref || typeof c.getAllPins !== 'function') continue;
+    partRefs.add(ref);
+    const primitiveId =
+      typeof c.getState_PrimitiveId === 'function' ? String(c.getState_PrimitiveId()) : '';
+    floatingPins.push(
+      ...(await collectFloatingPinsForComponent(c, ref, primitiveId, connectedNodes)),
+    );
+  }
+  return { floatingPins, partRefs: [...partRefs] };
+}
+
 async function dispatch(method: string, params: Record<string, unknown> = {}): Promise<unknown> {
   switch (method) {
     case 'project.open':
@@ -1733,11 +2036,13 @@ async function dispatch(method: string, params: Record<string, unknown> = {}): P
 
       const collision = await findForeignNetCollision(rawPoints, netName);
       if (collision) {
+        const collidedWith =
+          collision.kind === 'wire' ? 'an existing wire' : 'a pin or net flag/port';
         throw newBridgeError(
           'NET_COLLISION',
           `Refusing to draw wire for net "${netName}": point (${collision.x}, ${collision.y}) ` +
-            `coincides with an existing wire on net "${collision.foreignNet}". EasyEDA Pro ` +
-            'auto-merges wires that share a coordinate (not just endpoints), which would ' +
+            `coincides with ${collidedWith} on net "${collision.foreignNet}". EasyEDA Pro ` +
+            'auto-merges primitives that share a coordinate (not just endpoints), which would ' +
             'silently short these two nets together.',
           `Route this wire through coordinates not used by net "${collision.foreignNet}", ` +
             'or call schematic_nets afterward to confirm the intended topology.',
@@ -2008,53 +2313,11 @@ async function dispatch(method: string, params: Record<string, unknown> = {}): P
       // via a stamped pin property and is empty for pins connected by a wire,
       // power/ground flag, or net label, so re-reading it misreported every
       // wire/flag/label-connected pin as floating.
-      const connectedNodes = new Set<string>();
-      for (const n of netlistData) {
-        for (const node of n.nodes || []) {
-          connectedNodes.add(`${node.component} ${node.pin}`);
-        }
-      }
-      const floatingPins: Array<{ primitiveId: string; designator: string; pinNumber: string }> =
-        [];
-      const partRefs = new Set<string>();
-      const schCompClass = readFirstPath<any>([
-        'SCH_PrimitiveComponent',
-        'SCH_PrimitiveComponent3',
-        'sch_PrimitiveComponent',
-      ]);
-      if (schCompClass && typeof schCompClass.getAll === 'function') {
-        const allComps = await schCompClass.getAll(undefined, true);
-        for (const c of allComps || []) {
-          const ref = typeof c.getState_Designator === 'function' ? c.getState_Designator() : '';
-          // Skip primitives without a designator (title block, net flags, net
-          // ports, net labels): they are not schematic parts and have no pins
-          // to treat as floating, and counting them inflated the tally.
-          if (!ref || typeof c.getAllPins !== 'function') continue;
-          partRefs.add(ref);
-          const primitiveId =
-            typeof c.getState_PrimitiveId === 'function' ? String(c.getState_PrimitiveId()) : '';
-          try {
-            const pins = await c.getAllPins();
-            for (const p of pins || []) {
-              if (typeof p.getState_PinNumber !== 'function') continue;
-              const pinNum = String(p.getState_PinNumber());
-              if (!connectedNodes.has(`${ref} ${pinNum}`)) {
-                floatingPins.push({
-                  primitiveId: primitiveId || ref,
-                  designator: ref,
-                  pinNumber: pinNum,
-                });
-              }
-            }
-          } catch {
-            // skip component
-          }
-        }
-      }
+      const { floatingPins, partRefs } = await findFloatingPinsApi();
       const warnings: string[] = [];
       // Count only real parts (those with a designator), not net flags/ports/
       // labels or the title block, so the tally is not inflated by non-parts.
-      const totalRefs = partRefs.size;
+      const totalRefs = partRefs.length;
       if (floatingPins.length > 0) {
         warnings.push(`${floatingPins.length} pin(s) are not connected to any net.`);
       }
@@ -2326,8 +2589,32 @@ async function dispatch(method: string, params: Record<string, unknown> = {}): P
       return null;
     case 'design.ruleCheck':
       return runDrcCheck(['PCB_Drc.check', 'SCH_Drc.check']);
-    case 'design.erc':
-      return runDrcCheck(['SCH_Drc.check']);
+    case 'design.erc': {
+      const result = await runDrcCheck(['SCH_Drc.check']);
+      // SCH_Drc.check()'s verbose mode only ever returns per-severity
+      // aggregates (confirmed live twice: a schematic with exactly one
+      // floating-pin part produced exactly [{type:"warn",count:1}], no
+      // location/net/component fields at any depth). Floating pins are the
+      // one ERC category our own connectivity inference can locate
+      // independently, so surface them as a best-effort supplement —
+      // clearly not a full decomposition of the native count, since other
+      // ERC categories (short circuits, conflicting pin types, etc.) have
+      // no inference-based equivalent.
+      try {
+        const { floatingPins } = await findFloatingPinsApi();
+        return {
+          ...result,
+          inferredFloatingPins: floatingPins,
+          detailSource:
+            floatingPins.length > 0
+              ? ('inferred_partial' as const)
+              : ('native_aggregate_only' as const),
+        };
+      } catch (e) {
+        logRecoverableError('design.erc: floating-pin inference failed', e);
+        return { ...result, inferredFloatingPins: [], detailSource: 'native_aggregate_only' };
+      }
+    }
     case 'design.drc':
       return runDrcCheck(['PCB_Drc.check', 'SCH_Drc.check']);
     case 'export.pickPlace':
@@ -2471,16 +2758,40 @@ async function dispatch(method: string, params: Record<string, unknown> = {}): P
         params.netName,
         params.clearance,
       );
-    case 'pcb.deleteComponent':
-      return callFirst(
-        ['PCB_PrimitiveComponent.delete', 'pcb_PrimitiveComponent.delete'],
-        params.primitiveIds,
-      );
+    case 'pcb.deleteComponent': {
+      // Returns full per-id status rather than throwing on partial failure:
+      // the bridge transport only preserves an error's message (not its data
+      // payload) back to the MCP tool layer, so structured deleted/notFound
+      // detail would be lost if this threw instead.
+      const ids = Array.isArray(params.primitiveIds) ? (params.primitiveIds as string[]) : [];
+      const result = await pcbDeletePrimitivesApi(ids);
+      return {
+        success: result.notFound.length === 0,
+        deletedCount: result.deleted.length,
+        deleted: result.deleted,
+        notFound: result.notFound,
+      };
+    }
     case 'pcb.modifyComponent':
       return callFirst(
         ['PCB_PrimitiveComponent.modify', 'pcb_PrimitiveComponent.modify'],
         params.primitiveId,
         params.property,
+      );
+    case 'pcb.listComponents':
+      return pcbListComponentsApi(
+        typeof params.limit === 'number' ? params.limit : undefined,
+        typeof params.offset === 'number' ? params.offset : 0,
+      );
+    case 'pcb.listTracks':
+      return pcbListTracksApi(
+        typeof params.limit === 'number' ? params.limit : undefined,
+        typeof params.offset === 'number' ? params.offset : 0,
+      );
+    case 'pcb.listVias':
+      return pcbListViasApi(
+        typeof params.limit === 'number' ? params.limit : undefined,
+        typeof params.offset === 'number' ? params.offset : 0,
       );
     default:
       throw newBridgeError(
