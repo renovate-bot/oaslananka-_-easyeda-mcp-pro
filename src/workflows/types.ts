@@ -69,6 +69,38 @@ export interface WorkflowWireInput {
   lineWidth?: number;
 }
 
+export interface WorkflowRectangleInput {
+  ref?: string;
+  role: string;
+  /** Bottom-left offset from the workflow anchor in normalized schematic coordinates. */
+  placementOffset: { dx: number; dy: number };
+  width: number;
+  height: number;
+  cornerRadius?: number;
+  rotation?: number;
+  color?: string;
+  fillColor?: string;
+  lineWidth?: number;
+  lineType?: number;
+  fillStyle?: string;
+}
+
+export interface WorkflowTextInput {
+  ref?: string;
+  role: string;
+  /** Text-anchor offset from the workflow anchor in normalized schematic coordinates. */
+  placementOffset: { dx: number; dy: number };
+  content: string;
+  rotation?: number;
+  color?: string;
+  fontName?: string;
+  fontSize?: number;
+  bold?: boolean;
+  italic?: boolean;
+  underline?: boolean;
+  alignMode?: number;
+}
+
 export interface WorkflowBlockInput {
   projectId: string;
   mode?: WorkflowExecutionMode;
@@ -81,6 +113,8 @@ export interface WorkflowBlockInput {
   netPorts?: WorkflowNetPortInput[];
   netPortAnchor?: { x: number; y: number };
   wires?: WorkflowWireInput[];
+  rectangles?: WorkflowRectangleInput[];
+  texts?: WorkflowTextInput[];
 }
 
 export type WorkflowOperation =
@@ -110,6 +144,20 @@ export type WorkflowOperation =
       role: string;
       netName?: string;
       method: 'schematic.addWire';
+      params: Record<string, unknown>;
+    }
+  | {
+      kind: 'addRectangle';
+      ref?: string;
+      role: string;
+      method: 'schematic.addRectangle';
+      params: Record<string, unknown>;
+    }
+  | {
+      kind: 'addText';
+      ref?: string;
+      role: string;
+      method: 'schematic.addText';
       params: Record<string, unknown>;
     };
 

@@ -98,6 +98,43 @@ describe('planWorkflowBlock', () => {
     expect(connectOp?.params.primitiveId).toBe('real-primitive-id');
   });
 
+  it('plans cosmetic-only rectangle and text operations with anchor-relative coordinates', () => {
+    const plan = planWorkflowBlock(
+      baseInput({
+        components: [],
+        rectangles: [
+          {
+            ref: 'section:frame',
+            role: 'section-frame',
+            placementOffset: { dx: 10, dy: -50 },
+            width: 120,
+            height: 80,
+            fillColor: 'none',
+          },
+        ],
+        texts: [
+          {
+            ref: 'section:title',
+            role: 'section-title',
+            placementOffset: { dx: 15, dy: 10 },
+            content: 'POWER',
+            fontSize: 16,
+            bold: true,
+          },
+        ],
+      }),
+      'wf_cosmetic',
+    );
+
+    expect(plan.blocked).toBe(false);
+    expect(plan.operations.map((operation) => operation.kind)).toEqual(['addRectangle', 'addText']);
+    expect(plan.operations[0]?.params).toMatchObject({ x: 110, y: 50, width: 120, height: 80 });
+    expect(plan.operations[1]?.params).toMatchObject({ x: 115, y: 110, content: 'POWER' });
+    expect(plan.summary).toContain('1 rectangle(s)');
+    expect(plan.summary).toContain('1 text label(s)');
+    expect(plan.rollbackNotes[0]).toContain('rectangles');
+  });
+
   it('flags an empty workflow as blocked with WORKFLOW_NO_COMPONENTS', () => {
     const plan = planWorkflowBlock(baseInput({ components: [] }), 'wf_test');
     expect(plan.blocked).toBe(true);

@@ -26,6 +26,7 @@ import { buildSpiceDeck } from '../simulation/netlist.js';
 import { detectNgspice, runNgspiceDeck } from '../simulation/runner.js';
 import { parseOperatingPointOutput } from '../simulation/parser.js';
 import { verifyRailAgainstSpec } from '../simulation/verify.js';
+import { listPrimitiveIds } from '../transactions/index.js';
 import type { SimCircuit } from '../simulation/types.js';
 
 const deviceItemSchema = z.object({
@@ -179,8 +180,9 @@ interface ApplyOutcome {
 
 /**
  * Execute a workflow plan's operations in order against the bridge. Stops at the first
- * failure and best-effort rolls back every newly-created primitive (placed components and
- * net ports) from this same transaction — see `WorkflowPlan.rollbackNotes` for what cannot
+ * failure and best-effort rolls back every newly-created primitive (placed components,
+ * net ports, wires, rectangles, and text) from this same transaction — see
+ * `WorkflowPlan.rollbackNotes` for what cannot
  * be rolled back (pin connections applied to pre-existing components).
  */
 interface OperationOutcome {
@@ -198,22 +200,81 @@ function extractResultPrimitiveId(result: unknown): string | undefined {
   return typeof data === 'string' ? data : (data?.primitiveId ?? data?.result ?? undefined);
 }
 
+const WORKFLOW_CREATE_RECONCILE_ATTEMPTS = 30;
+const WORKFLOW_CREATE_RECONCILE_FAILURE_ATTEMPTS = 10;
+const WORKFLOW_CREATE_RECONCILE_DELAY_MS = 100;
+
+type ReconciledWorkflowPrimitiveKind = 'rectangle' | 'text';
+
+function reconciledPrimitiveKind(
+  operation: WorkflowOperation,
+): ReconciledWorkflowPrimitiveKind | undefined {
+  if (operation.kind === 'addRectangle') return 'rectangle';
+  if (operation.kind === 'addText') return 'text';
+  return undefined;
+}
+
+async function pollWorkflowAddedPrimitiveIds(
+  ctx: ToolContext,
+  primitiveKind: ReconciledWorkflowPrimitiveKind,
+  beforeIds: ReadonlySet<string>,
+  attempts: number,
+): Promise<string[]> {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const afterIds = await listPrimitiveIds(ctx.bridge, primitiveKind);
+    const added = afterIds.filter((primitiveId) => !beforeIds.has(primitiveId));
+    if (added.length > 0 || attempt === attempts - 1) return added;
+    await new Promise<void>((resolve) => setTimeout(resolve, WORKFLOW_CREATE_RECONCILE_DELAY_MS));
+  }
+  return [];
+}
+
+function requireUniqueWorkflowPrimitiveId(
+  primitiveKind: ReconciledWorkflowPrimitiveKind,
+  addedIds: string[],
+): string {
+  if (addedIds.length === 1) return addedIds[0] as string;
+  if (addedIds.length > 1) {
+    throw new Error(
+      `Workflow create reconciliation is ambiguous: ${addedIds.length} new ${primitiveKind} primitives`,
+    );
+  }
+  throw new Error(`Workflow create did not expose a unique new ${primitiveKind} primitive`);
+}
+
 /** Apply one operation, resolving `$ref:` placeholders against already-applied refs. */
 async function applySingleOperation(
   ctx: ToolContext,
   op: WorkflowOperation,
   refToPrimitiveId: Map<string, string>,
 ): Promise<{ outcome: OperationOutcome; newPrimitiveId?: string }> {
+  const expectedKind = reconciledPrimitiveKind(op);
+  let beforeIds: ReadonlySet<string> | undefined;
   try {
+    if (expectedKind) beforeIds = new Set(await listPrimitiveIds(ctx.bridge, expectedKind));
     const params = resolveOperationParams(op.params, refToPrimitiveId);
     const result = await ctx.bridge.call<Record<string, unknown>, unknown>(op.method, params);
-    const primitiveId = extractResultPrimitiveId(result);
+    const primitiveId = expectedKind
+      ? requireUniqueWorkflowPrimitiveId(
+          expectedKind,
+          await pollWorkflowAddedPrimitiveIds(
+            ctx,
+            expectedKind,
+            beforeIds ?? new Set<string>(),
+            WORKFLOW_CREATE_RECONCILE_ATTEMPTS,
+          ),
+        )
+      : extractResultPrimitiveId(result);
 
     if (op.kind === 'placeComponent' && primitiveId) {
       refToPrimitiveId.set(op.ref, primitiveId);
     }
     const createsNewPrimitive =
-      (op.kind === 'placeComponent' || op.kind === 'createNetPort' || op.kind === 'addWire') &&
+      (op.kind === 'placeComponent' ||
+        op.kind === 'createNetPort' ||
+        op.kind === 'addWire' ||
+        op.kind === 'addRectangle' ||
+        op.kind === 'addText') &&
       Boolean(primitiveId);
 
     return {
@@ -221,13 +282,30 @@ async function applySingleOperation(
       newPrimitiveId: createsNewPrimitive ? primitiveId : undefined,
     };
   } catch (err) {
+    let reconciledPrimitiveId: string | undefined;
+    if (expectedKind && beforeIds) {
+      try {
+        const added = await pollWorkflowAddedPrimitiveIds(
+          ctx,
+          expectedKind,
+          beforeIds,
+          WORKFLOW_CREATE_RECONCILE_FAILURE_ATTEMPTS,
+        );
+        if (added.length === 1) reconciledPrimitiveId = added[0];
+      } catch {
+        // Preserve the original operation failure. Without one unambiguous expected-kind
+        // inventory delta there is no primitive that can be deleted safely.
+      }
+    }
     return {
       outcome: {
         method: op.method,
         ref: operationRef(op),
         success: false,
+        primitiveId: reconciledPrimitiveId,
         error: err instanceof Error ? err.message : String(err),
       },
+      newPrimitiveId: reconciledPrimitiveId,
     };
   }
 }
@@ -514,6 +592,13 @@ const rp2040ServoOutputSchema = workflowOutputSchema.extend({
         title: z.string(),
         origin: pointSchema,
         size: z.object({ width: z.number(), height: z.number() }),
+        frame: z.object({
+          x: z.number(),
+          y: z.number(),
+          width: z.number(),
+          height: z.number(),
+        }),
+        titlePosition: pointSchema,
         refs: z.array(z.string()),
       }),
     ),
@@ -527,6 +612,21 @@ const rp2040ServoOutputSchema = workflowOutputSchema.extend({
           count: z.number().int().nonnegative(),
         }),
       ),
+    }),
+    diagnostics: z.object({
+      mode: z.literal('placement-scaffold'),
+      electricalCompleteness: z.literal('intentionally-incomplete'),
+      sectionFrameCount: z.number().int().nonnegative(),
+      sectionTitleCount: z.number().int().nonnegative(),
+      detachedNetPortCount: z.number().int().nonnegative(),
+      wireCount: z.number().int().nonnegative(),
+      allExpectedRefsAssigned: z.boolean(),
+      duplicateBlockRefs: z.array(z.string()),
+      missingBlockRefs: z.array(z.string()),
+      blocksNonOverlapping: z.boolean(),
+      placementAnchorsInsideBlocks: z.boolean(),
+      drcExpectation: z.string(),
+      ercExpectation: z.string(),
     }),
     warnings: z.array(z.string()),
     notes: z.array(z.string()),
@@ -714,15 +814,15 @@ function registerWorkflowTools(
     name: 'easyeda_workflow_rp2040_servo_module',
     title: 'Plan or apply an RP2040 servo-module complex schematic scaffold',
     description:
-      'Create a deterministic functional-block scaffold for the RP2040 servo-module reference design. ' +
-      'This first milestone places BOM components by block and returns explicit missing-netlist warnings; ' +
-      'it does not infer exact pin-to-net wiring from screenshot+BOM alone (confirmWrite required).',
+      'Plan or apply an RP2040 servo-module scaffold: 56 BOM parts in seven visible rollback-backed ' +
+      'sections with deterministic titles and completeness diagnostics. Exact pin-to-net wiring stays ' +
+      'intentionally absent until later block netlists supply it (confirmWrite required).',
     profile: 'pro',
     evidence: ['inferred', 'runtime-probe'],
     risk: 'medium',
     confirmWrite: true,
     group: 'workflows',
-    version: '1.0.0',
+    version: '1.1.0',
     annotations: {
       readOnlyHint: false,
       destructiveHint: false,
@@ -781,6 +881,7 @@ function registerWorkflowTools(
         scaffold: {
           blocks: scaffold.blocks,
           bom: scaffold.bom,
+          diagnostics: scaffold.diagnostics,
           warnings: scaffold.warnings,
           notes: scaffold.notes,
         },
