@@ -14,5 +14,8 @@ export type {
   WorkflowPinConnection,
   WorkflowPlan,
   WorkflowPlannedComponent,
+  WorkflowRectangleInput,
   WorkflowSeverity,
+  WorkflowTextInput,
+  WorkflowWireInput,
 } from './types.js';

@@ -165,7 +165,7 @@ describe('Workflow Tools', () => {
       diode: deviceItem,
     };
 
-    it('previews the RP2040 servo-module scaffold without writing to EasyEDA', async () => {
+    it('previews visible RP2040 functional sections without writing to EasyEDA', async () => {
       bridgeCall.mockResolvedValueOnce({ currentPage: { width: 1682, height: 1189 } });
       const tool = registry.get('easyeda_workflow_rp2040_servo_module');
       const result = (await tool?.handler(context, {
@@ -177,17 +177,165 @@ describe('Workflow Tools', () => {
       expect(result.applied).toBe(false);
       expect(result.blocked).toBe(false);
       expect(result.placements).toHaveLength(56);
-      expect(result.operations).toHaveLength(56);
-      expect(result.operations.every((op: any) => op.kind === 'placeComponent')).toBe(true);
+      expect(result.operations).toHaveLength(70);
+      expect(result.operations.filter((op: any) => op.kind === 'placeComponent')).toHaveLength(56);
+      expect(result.operations.filter((op: any) => op.kind === 'addRectangle')).toHaveLength(7);
+      expect(result.operations.filter((op: any) => op.kind === 'addText')).toHaveLength(7);
+      expect(result.operations.filter((op: any) => op.kind === 'createNetPort')).toHaveLength(0);
+      expect(result.operations.filter((op: any) => op.kind === 'addWire')).toHaveLength(0);
       expect(result.scaffold.bom.referenceCount).toBe(56);
       expect(result.scaffold.blocks).toHaveLength(7);
+      expect(result.scaffold.diagnostics).toMatchObject({
+        sectionFrameCount: 7,
+        sectionTitleCount: 7,
+        allExpectedRefsAssigned: true,
+        blocksNonOverlapping: true,
+        placementAnchorsInsideBlocks: true,
+        detachedNetPortCount: 0,
+        wireCount: 0,
+      });
       expect(result.scaffold.warnings.join('\n')).toContain(
         'exact pin-to-net wiring is not inferred',
       );
       expect(
         result.issues.some((issue: any) => issue.code === 'WORKFLOW_EMPTY_PIN_CONNECTIONS'),
       ).toBe(true);
+      expect(bridgeCall).toHaveBeenCalledTimes(1);
       expect(bridgeCall).toHaveBeenCalledWith('schematic.getSheetInfo', { projectId: 'servo' });
+    });
+
+    it('applies all component, frame, and title operations in one rollback-backed workflow', async () => {
+      let componentId = 0;
+      let rectangleId = 0;
+      let textId = 0;
+      const rectangleIds: string[] = [];
+      const textIds: string[] = [];
+      bridgeCall.mockImplementation(async (method: string, params: any) => {
+        if (method === 'schematic.getSheetInfo') {
+          return { currentPage: { width: 1682, height: 1189 } };
+        }
+        if (method === 'schematic.placeComponent') {
+          componentId += 1;
+          return { primitiveId: `component-${componentId}` };
+        }
+        if (method === 'schematic.listPrimitiveIds') {
+          return {
+            primitiveIds: params.primitiveKind === 'rectangle' ? rectangleIds : textIds,
+          };
+        }
+        if (method === 'schematic.addRectangle') {
+          rectangleId += 1;
+          rectangleIds.push(`rectangle-${rectangleId}`);
+          return { primitiveId: 'misleading-existing-text-id' };
+        }
+        if (method === 'schematic.addText') {
+          textId += 1;
+          textIds.push(`text-${textId}`);
+          return { primitiveId: 'misleading-existing-rectangle-id' };
+        }
+        return { result: [] };
+      });
+
+      const tool = registry.get('easyeda_workflow_rp2040_servo_module');
+      const result = (await tool?.handler(context, {
+        projectId: 'servo',
+        mode: 'apply',
+        confirmWrite: true,
+        devices: servoDevices,
+      })) as any;
+
+      expect(result.success).toBe(true);
+      expect(result.applied).toBe(true);
+      expect(result.apply_results).toHaveLength(70);
+      expect(
+        bridgeCall.mock.calls.filter(([method]) => method === 'schematic.placeComponent'),
+      ).toHaveLength(56);
+      expect(
+        bridgeCall.mock.calls.filter(([method]) => method === 'schematic.addRectangle'),
+      ).toHaveLength(7);
+      expect(
+        bridgeCall.mock.calls.filter(([method]) => method === 'schematic.addText'),
+      ).toHaveLength(7);
+      expect(
+        result.apply_results.filter((entry: any) => entry.method === 'schematic.addRectangle'),
+      ).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ primitiveId: 'rectangle-1' }),
+          expect.objectContaining({ primitiveId: 'rectangle-7' }),
+        ]),
+      );
+      expect(
+        result.apply_results.filter((entry: any) => entry.method === 'schematic.addText'),
+      ).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ primitiveId: 'text-1' }),
+          expect.objectContaining({ primitiveId: 'text-7' }),
+        ]),
+      );
+      expect(bridgeCall).not.toHaveBeenCalledWith('schematic.createNetPort', expect.anything());
+      expect(bridgeCall).not.toHaveBeenCalledWith('schematic.addWire', expect.anything());
+    });
+
+    it('rolls back section frames and placed components when a title write fails', async () => {
+      let componentId = 0;
+      let rectangleId = 0;
+      let textCalls = 0;
+      const rectangleIds: string[] = [];
+      const textIds: string[] = [];
+      let rolledBackIds: string[] = [];
+      bridgeCall.mockImplementation(async (method: string, params: any) => {
+        if (method === 'schematic.getSheetInfo') {
+          return { currentPage: { width: 1682, height: 1189 } };
+        }
+        if (method === 'schematic.placeComponent') {
+          componentId += 1;
+          return { primitiveId: `component-${componentId}` };
+        }
+        if (method === 'schematic.listPrimitiveIds') {
+          return {
+            primitiveIds: params.primitiveKind === 'rectangle' ? rectangleIds : textIds,
+          };
+        }
+        if (method === 'schematic.addRectangle') {
+          rectangleId += 1;
+          rectangleIds.push(`rectangle-${rectangleId}`);
+          return { primitiveId: 'misleading-existing-text-id' };
+        }
+        if (method === 'schematic.addText') {
+          textCalls += 1;
+          textIds.push(`text-${textCalls}`);
+          if (textCalls === 2) throw new Error('forced title failure after create');
+          return { primitiveId: 'misleading-existing-rectangle-id' };
+        }
+        if (method === 'schematic.deletePrimitive') {
+          rolledBackIds = params.primitiveIds;
+          return { success: true };
+        }
+        return { result: [] };
+      });
+
+      const tool = registry.get('easyeda_workflow_rp2040_servo_module');
+      const result = (await tool?.handler(context, {
+        projectId: 'servo',
+        mode: 'apply',
+        confirmWrite: true,
+        devices: servoDevices,
+      })) as any;
+
+      expect(result.success).toBe(false);
+      expect(result.applied).toBe(false);
+      expect(result.rolled_back).toBe(true);
+      expect(rolledBackIds).toHaveLength(65);
+      expect(rolledBackIds).toEqual(
+        expect.arrayContaining([
+          'component-1',
+          'component-56',
+          'rectangle-1',
+          'rectangle-7',
+          'text-1',
+          'text-2',
+        ]),
+      );
     });
   });
 

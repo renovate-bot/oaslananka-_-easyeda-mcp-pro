@@ -23,6 +23,8 @@ import type {
   WorkflowIssue,
   WorkflowNetPortInput,
   WorkflowOperation,
+  WorkflowRectangleInput,
+  WorkflowTextInput,
   WorkflowWireInput,
   WorkflowPlan,
   WorkflowPlannedComponent,
@@ -52,16 +54,26 @@ function validateWorkflowInputs(
   components: WorkflowComponentInput[],
   existingComponents: WorkflowExistingComponentInput[],
   netPorts: WorkflowNetPortInput[],
+  wires: WorkflowWireInput[],
+  rectangles: WorkflowRectangleInput[],
+  texts: WorkflowTextInput[],
 ): WorkflowIssue[] {
   const issues: WorkflowIssue[] = [];
 
-  if (components.length === 0 && existingComponents.length === 0 && netPorts.length === 0) {
+  if (
+    components.length === 0 &&
+    existingComponents.length === 0 &&
+    netPorts.length === 0 &&
+    wires.length === 0 &&
+    rectangles.length === 0 &&
+    texts.length === 0
+  ) {
     issues.push(
       issue(
         'WORKFLOW_NO_COMPONENTS',
         'error',
-        'The workflow has no components, existing-component references, or net ports to act on.',
-        'Provide at least one component, existingComponent, or netPort.',
+        'The workflow has no components, wires, net ports, rectangles, or text to act on.',
+        'Provide at least one component, existingComponent, wire, netPort, rectangle, or text entry.',
       ),
     );
   }
@@ -136,6 +148,8 @@ function workflowPlanSummary(
   existingComponents: WorkflowExistingComponentInput[],
   netPorts: WorkflowNetPortInput[],
   wires: WorkflowWireInput[],
+  rectangles: WorkflowRectangleInput[],
+  texts: WorkflowTextInput[],
   operations: WorkflowOperation[],
 ): string {
   if (blocked) {
@@ -145,7 +159,8 @@ function workflowPlanSummary(
   const verb = mode === 'apply' ? 'Applying' : 'Planned';
   return (
     `${verb} ${components.length} new component(s), ${existingComponents.length} existing-component wiring, ` +
-    `${netPorts.length} net port(s), and ${wires.length} wire(s) across ${operations.length} operation(s).`
+    `${netPorts.length} net port(s), ${wires.length} wire(s), ${rectangles.length} rectangle(s), and ` +
+    `${texts.length} text label(s) across ${operations.length} operation(s).`
   );
 }
 
@@ -158,8 +173,17 @@ export function planWorkflowBlock(
   const existingComponents = input.existingComponents ?? [];
   const netPorts = input.netPorts ?? [];
   const wires = input.wires ?? [];
+  const rectangles = input.rectangles ?? [];
+  const texts = input.texts ?? [];
   const spacing = input.spacing ?? 10;
-  const issues = validateWorkflowInputs(components, existingComponents, netPorts);
+  const issues = validateWorkflowInputs(
+    components,
+    existingComponents,
+    netPorts,
+    wires,
+    rectangles,
+    texts,
+  );
   const blocked = issues.some((entry) => entry.severity === 'error');
 
   const placements: WorkflowPlannedComponent[] = components.map((component, index) => ({
@@ -266,8 +290,52 @@ export function planWorkflowBlock(
     });
   }
 
+  for (const rectangle of rectangles) {
+    operations.push({
+      kind: 'addRectangle',
+      ref: rectangle.ref,
+      role: rectangle.role,
+      method: 'schematic.addRectangle',
+      params: {
+        x: input.anchor.x + rectangle.placementOffset.dx,
+        y: input.anchor.y + rectangle.placementOffset.dy,
+        width: rectangle.width,
+        height: rectangle.height,
+        cornerRadius: rectangle.cornerRadius,
+        rotation: rectangle.rotation,
+        color: rectangle.color,
+        fillColor: rectangle.fillColor,
+        lineWidth: rectangle.lineWidth,
+        lineType: rectangle.lineType,
+        fillStyle: rectangle.fillStyle,
+      },
+    });
+  }
+
+  for (const text of texts) {
+    operations.push({
+      kind: 'addText',
+      ref: text.ref,
+      role: text.role,
+      method: 'schematic.addText',
+      params: {
+        x: input.anchor.x + text.placementOffset.dx,
+        y: input.anchor.y + text.placementOffset.dy,
+        content: text.content,
+        rotation: text.rotation,
+        color: text.color,
+        fontName: text.fontName,
+        fontSize: text.fontSize,
+        bold: text.bold,
+        italic: text.italic,
+        underline: text.underline,
+        alignMode: text.alignMode,
+      },
+    });
+  }
+
   const rollbackNotes = [
-    'Newly-created primitives (placed components, net ports, and wires created in this transaction) are deleted on rollback.',
+    'Newly-created primitives (placed components, net ports, wires, rectangles, and text created in this transaction) are deleted on rollback.',
   ];
   if (existingComponents.some((component) => component.pinConnections.length > 0)) {
     rollbackNotes.push(
@@ -285,6 +353,8 @@ export function planWorkflowBlock(
     existingComponents,
     netPorts,
     wires,
+    rectangles,
+    texts,
     operations,
   );
 
