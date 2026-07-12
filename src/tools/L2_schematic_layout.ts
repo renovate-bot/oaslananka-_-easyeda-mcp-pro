@@ -418,10 +418,10 @@ export function registerSchematicLayoutTools(
     name: 'easyeda_schematic_layout_qa',
     title: 'Run integrated schematic layout QA',
     description:
-      'Run one normalized post-write QA operation that combines runtime DRC/ERC, expected ' +
-      'component and pin topology, complete rendered primitive bounds, title-block and page ' +
-      'constraints, wiring/grouping checks, connectivity fingerprints, and optional full-page ' +
-      'visual evidence. Critical geometry or connectivity findings always block commit.',
+      'Run a normalized post-write QA pass combining runtime DRC/ERC, expected ' +
+      'component/pin topology, rendered primitive bounds, title-block and page constraints, ' +
+      'wiring/grouping checks, and connectivity fingerprints, with optional full-page visual ' +
+      'evidence. Critical geometry or connectivity findings always block commit.',
     profile: 'pro',
     evidence: ['runtime-probe', 'inferred'],
     risk: 'low',

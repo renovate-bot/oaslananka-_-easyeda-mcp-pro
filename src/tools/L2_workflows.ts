@@ -1360,10 +1360,10 @@ function registerWorkflowTools(
     name: 'easyeda_workflow_led_blinker',
     title: 'Plan or apply a Level-1 LED blinker circuit (Switch + Resistor + LED)',
     description:
-      'Create a deterministic LED blinker workflow: a switch controls power through a current-limiting ' +
-      'resistor to an indicator LED. Uses safe sheet-region planning, left-to-right signal flow layout, ' +
-      'generic wire stubs, and optional post-write QA. Caller supplies already-resolved EasyEDA device items ' +
-      '(confirmWrite required). This is the simplest complete circuit for validating the full MCP pipeline.',
+      'Create a deterministic LED blinker workflow: a switch, current-limiting resistor, and ' +
+      'indicator LED. Uses safe sheet-region planning, left-to-right layout, generic wire stubs, ' +
+      'and optional post-write QA. Caller supplies resolved device items (confirmWrite required); ' +
+      'simplest circuit for validating the MCP pipeline.',
     profile: 'pro',
     evidence: ['inferred', 'runtime-probe'],
     risk: 'medium',
