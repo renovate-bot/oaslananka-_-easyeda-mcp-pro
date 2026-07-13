@@ -363,4 +363,32 @@ describe('schematic layout QA', () => {
 
     expect(result.issues.map((issue) => issue.code)).toContain('LOCAL_CROWDING');
   });
+
+  it('produces byte-identical output for identical input, run twice', () => {
+    const qaInput = input([component('U1', 660, 100, 80, 40), component('R1', 100, 300, 40, 20)]);
+
+    const first = evaluateSchematicLayoutQa(qaInput);
+    const second = evaluateSchematicLayoutQa(qaInput);
+
+    expect(first).toEqual(second);
+  });
+
+  it('blocks commit on a single critical geometry violation regardless of how high the averaged overall score reads', () => {
+    // Only one of the seven scored dimensions (geometry) takes the
+    // TITLE_BLOCK_OVERLAP penalty; the other six stay at 100. A
+    // threshold check on `scores.overall` alone (e.g. "block only if
+    // overall < 50") would miss this critical violation entirely, which
+    // is exactly why `commitBlocked`/`status` are computed directly from
+    // issue severity, not derived from the averaged score. This test
+    // pins that independence; it does not assert that a high `overall`
+    // here is the intended long-term behavior -- see #276 for whether
+    // `overall` itself should weight critical issues more heavily.
+    const primitive = component('U1', 660, 100, 80, 40);
+    const result = evaluateSchematicLayoutQa(input([primitive]));
+
+    expect(result.summary.criticalIssueCodes).toContain('TITLE_BLOCK_OVERLAP');
+    expect(result.status).toBe('fail');
+    expect(result.commitBlocked).toBe(true);
+    expect(result.scores.overall).toBeGreaterThanOrEqual(80);
+  });
 });
