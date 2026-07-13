@@ -90,6 +90,7 @@ These tools are profile-gated. Set the `TOOL_PROFILE` environment variable to en
 | `easyeda_schematic_create_net_flag`                | `core`  | `medium` | Create a named net flag/label. With `identification` (Power/Ground/AnalogGround/ProtectGround) it places a power-flag symbol binding to a coincident pin (use for VCC/GND). Without it, a generic net label — cosmetic only; connect pins with add_wire stubs sharing one netName.                                               |
 | `easyeda_schematic_create_net_port`                | `core`  | `medium` | Place a hierarchical net port (off-sheet connector) on the schematic. Net ports create named connections that span multiple schematic sheets, appearing as real SCH_Net entries in the netlist.                                                                                                                                  |
 | `easyeda_schematic_delete_primitive`               | `core`  | `medium` | Delete components, wires, or other drawing objects from the schematic by their primitive UUIDs.                                                                                                                                                                                                                                  |
+| `easyeda_schematic_layout_autofix`                 | `pro`   | `low`    | Detect title-block overlap, page-boundary overflow, and component-overlap violations from real rendered bounds, and propose cosmetic-only moves that resolve them. Read-only preview only (requiresConfirmWrite=true, no writes) -- confirmWrite apply with connectivity-fingerprint rollback is tracked separately (#273).      |
 | `easyeda_schematic_layout_qa`                      | `pro`   | `low`    | Run a normalized post-write QA pass combining runtime DRC/ERC, expected component/pin topology, rendered primitive bounds, title-block and page constraints, wiring/grouping checks, and connectivity fingerprints, with optional full-page visual evidence. Critical geometry or connectivity findings always block commit.     |
 | `easyeda_schematic_modify_primitive`               | `core`  | `medium` | Safely modify a schematic primitive while preserving omitted fields. With transactionId and projectId, capture before/after snapshots and automatically restore the prior state if the write or post-write read fails. Component moves keep connected wires attached.                                                            |
 | `easyeda_schematic_net_detail`                     | `core`  | `low`    | Get full details for a specific net in the schematic including all connected pins and components.                                                                                                                                                                                                                                |
@@ -2864,6 +2865,43 @@ Returns a JSON object matching the schema:
 {
   success: boolean;
   error: string(optional);
+}
+```
+
+---
+
+## `easyeda_schematic_layout_autofix`
+
+**Profile:** `pro` | **Risk Level:** `low`
+
+> Detect title-block overlap, page-boundary overflow, and component-overlap violations from real rendered bounds, and propose cosmetic-only moves that resolve them. Read-only preview only (requiresConfirmWrite=true, no writes) -- confirmWrite apply with connectivity-fingerprint rollback is tracked separately (#273).
+
+### Input Parameters
+
+| Parameter          | Type                  | Required | Description |
+| ------------------ | --------------------- | -------- | ----------- |
+| `projectId`        | `string`              | Yes      |             |
+| `allowlist`        | `object (optional)`   | No       |             |
+| `hardKeepouts`     | `object[] (optional)` | No       |             |
+| `reservedRegions`  | `object[] (optional)` | No       |             |
+| `minimumClearance` | `number (optional)`   | No       |             |
+| `maxMoves`         | `number (optional)`   | No       |             |
+
+### Output Format
+
+Returns a JSON object matching the schema:
+
+```ts
+{
+  projectId: string;
+  mode: 'preview';
+  requiresConfirmWrite: 'true';
+  violations: object[];
+  moves: object[];
+  report: object;
+  allowlist: object;
+  primitiveCount: number;
+  unavailablePrimitiveIds: string[];
 }
 ```
 
