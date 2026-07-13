@@ -32,6 +32,7 @@ import {
   type LivePlacementCandidateInput,
 } from '../schematic-model/live-placement-check.js';
 import {
+  applyLiveLayoutAutofix,
   gatherLiveLayoutAutofixPreview,
   type GatherLiveLayoutAutofixPreviewOptions,
 } from '../schematic-model/live-layout-autofix.js';
@@ -397,6 +398,39 @@ const autofixReportSchema = z.object({
   remaining: z.array(z.string()),
 });
 
+const autofixSharedInputFields = {
+  allowlist: z
+    .object({
+      primitiveTypes: z.array(autofixPrimitiveTypeSchema).min(1).optional(),
+      properties: z.array(autofixPropertySchema).min(1).optional(),
+    })
+    .optional(),
+  hardKeepouts: z.array(placementConstraintRegionSchema).optional(),
+  reservedRegions: z.array(placementConstraintRegionSchema).optional(),
+  minimumClearance: z.number().nonnegative().optional(),
+  maxMoves: z.number().int().positive().optional(),
+};
+
+interface AutofixSharedInputValues {
+  allowlist?: Partial<LayoutAutofixAllowlist>;
+  hardKeepouts?: GatherLiveLayoutAutofixPreviewOptions['hardKeepouts'];
+  reservedRegions?: GatherLiveLayoutAutofixPreviewOptions['callerReservedRegions'];
+  minimumClearance?: number;
+  maxMoves?: number;
+}
+
+function toAutofixGatherOptions(
+  values: AutofixSharedInputValues,
+): GatherLiveLayoutAutofixPreviewOptions {
+  return {
+    allowlist: values.allowlist,
+    hardKeepouts: values.hardKeepouts,
+    callerReservedRegions: values.reservedRegions,
+    minimumClearance: values.minimumClearance,
+    maxMoves: values.maxMoves,
+  };
+}
+
 const layoutAutofixOutputSchema = z.object({
   projectId: z.string(),
   mode: z.literal('preview'),
@@ -407,6 +441,88 @@ const layoutAutofixOutputSchema = z.object({
   allowlist: autofixAllowlistSchema,
   primitiveCount: z.number().int().nonnegative(),
   unavailablePrimitiveIds: z.array(z.string()),
+});
+
+const fingerprintPinMembershipSchema = z.object({
+  componentId: z.string(),
+  componentReference: z.string(),
+  pinId: z.string(),
+  pinNumber: z.string(),
+  netIds: z.array(z.string()),
+});
+
+const fingerprintWireEndpointSchema = z.object({
+  endpoint: z.enum(['start', 'end']),
+  kind: z.enum(['pin', 'unresolved']),
+  token: z.string(),
+});
+
+const fingerprintWireSchema = z.object({
+  wireId: z.string(),
+  netId: z.string().optional(),
+  netName: z.string().optional(),
+  endpoints: z.array(fingerprintWireEndpointSchema),
+});
+
+const fingerprintLabelOrPortSchema = z.object({
+  id: z.string(),
+  kind: z.enum(['label', 'sheet-port', 'power-symbol']),
+  netName: z.string(),
+});
+
+const fingerprintNoConnectSchema = z.object({
+  noConnectId: z.string(),
+  componentReference: z.string().optional(),
+  pinId: z.string().optional(),
+  pinNumber: z.string().optional(),
+});
+
+function diffEntrySchema<T extends z.ZodTypeAny>(inner: T) {
+  return z.object({ key: z.string(), before: inner.optional(), after: inner.optional() });
+}
+
+const connectivityFingerprintDiffSchema = z.object({
+  equal: z.boolean(),
+  beforeHash: z.string(),
+  afterHash: z.string(),
+  pinNetMembership: z.array(diffEntrySchema(fingerprintPinMembershipSchema)),
+  wireEndpoints: z.array(diffEntrySchema(fingerprintWireSchema)),
+  labelsAndPorts: z.array(diffEntrySchema(fingerprintLabelOrPortSchema)),
+  noConnects: z.array(diffEntrySchema(fingerprintNoConnectSchema)),
+});
+
+const layoutAutofixApplyOutputSchema = z.object({
+  projectId: z.string(),
+  dryRun: z.boolean(),
+  mode: z.literal('preview'),
+  requiresConfirmWrite: z.literal(true),
+  violations: z.array(autofixViolationSchema),
+  moves: z.array(autofixMoveSchema),
+  allowlist: autofixAllowlistSchema,
+  primitiveCount: z.number().int().nonnegative(),
+  unavailablePrimitiveIds: z.array(z.string()),
+  applied: z.boolean(),
+  batchesVerified: z.number().int().nonnegative(),
+  actualStateReadAfterFailure: z.boolean(),
+  beforeFingerprintHash: z.string().optional(),
+  afterFingerprintHash: z.string().optional(),
+  connectivityDiff: connectivityFingerprintDiffSchema.optional(),
+  report: autofixReportSchema,
+  transactionId: z.string().optional(),
+  transactionState: z
+    .enum([
+      'active',
+      'validating',
+      'validated',
+      'committed',
+      'rolling-back',
+      'rolled-back',
+      'failed',
+      'expired',
+    ])
+    .optional(),
+  errorCode: z.string().optional(),
+  error: z.string().optional(),
 });
 
 const functionalLayoutOutputSchema = z.object({
@@ -1133,40 +1249,84 @@ export function registerSchematicLayoutTools(
     },
     inputSchema: z.object({
       projectId: z.string().min(1),
-      allowlist: z
-        .object({
-          primitiveTypes: z.array(autofixPrimitiveTypeSchema).min(1).optional(),
-          properties: z.array(autofixPropertySchema).min(1).optional(),
-        })
-        .optional(),
-      hardKeepouts: z.array(placementConstraintRegionSchema).optional(),
-      reservedRegions: z.array(placementConstraintRegionSchema).optional(),
-      minimumClearance: z.number().nonnegative().optional(),
-      maxMoves: z.number().int().positive().optional(),
+      ...autofixSharedInputFields,
     }),
     outputSchema: layoutAutofixOutputSchema,
     handler: async (ctx: ToolContext, params: unknown) => {
-      const values = params as {
-        projectId: string;
-        allowlist?: Partial<LayoutAutofixAllowlist>;
-        hardKeepouts?: GatherLiveLayoutAutofixPreviewOptions['hardKeepouts'];
-        reservedRegions?: GatherLiveLayoutAutofixPreviewOptions['callerReservedRegions'];
-        minimumClearance?: number;
-        maxMoves?: number;
-      };
+      const values = params as { projectId: string } & AutofixSharedInputValues;
       const { preview, primitiveCount, unavailablePrimitiveIds } =
-        await gatherLiveLayoutAutofixPreview(ctx, values.projectId, {
-          allowlist: values.allowlist,
-          hardKeepouts: values.hardKeepouts,
-          callerReservedRegions: values.reservedRegions,
-          minimumClearance: values.minimumClearance,
-          maxMoves: values.maxMoves,
-        });
+        await gatherLiveLayoutAutofixPreview(ctx, values.projectId, toAutofixGatherOptions(values));
       return {
         projectId: values.projectId,
         ...preview,
         primitiveCount,
         unavailablePrimitiveIds,
+      };
+    },
+  });
+
+  registry.register({
+    name: 'easyeda_schematic_layout_autofix_apply',
+    title: 'Apply cosmetic schematic layout autofix moves',
+    description:
+      'Apply the layout-autofix cosmetic moves in a snapshot-backed transaction, re-verifying a ' +
+      'connectivity fingerprint after every write batch. Any unintended electrical change or write ' +
+      'failure rolls the transaction back and is reported, never thrown. dryRun:true previews only.',
+    profile: 'pro',
+    evidence: ['runtime-probe', 'inferred'],
+    risk: 'high',
+    confirmWrite: true,
+    group: 'workflows',
+    version: '1.0.0',
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+    },
+    inputSchema: z.object({
+      projectId: z.string().min(1),
+      ...autofixSharedInputFields,
+      batchSize: z.number().int().positive().optional(),
+      dryRun: z.boolean().default(false),
+      confirmWrite: z
+        .literal(true)
+        .describe('Must be the literal boolean true (not the string "true") to allow this write.'),
+    }),
+    outputSchema: layoutAutofixApplyOutputSchema,
+    handler: async (ctx: ToolContext, params: unknown) => {
+      const values = params as {
+        projectId: string;
+        batchSize?: number;
+        dryRun: boolean;
+      } & AutofixSharedInputValues;
+      const result = await applyLiveLayoutAutofix(ctx, values.projectId, {
+        ...toAutofixGatherOptions(values),
+        batchSize: values.batchSize,
+        dryRun: values.dryRun,
+      });
+      return {
+        projectId: values.projectId,
+        dryRun: values.dryRun,
+        mode: 'preview' as const,
+        requiresConfirmWrite: true as const,
+        violations: result.preview.violations,
+        moves: result.preview.moves,
+        allowlist: result.preview.allowlist,
+        primitiveCount: result.primitiveCount,
+        unavailablePrimitiveIds: result.unavailablePrimitiveIds,
+        applied: result.applied,
+        batchesVerified: result.batchesVerified,
+        actualStateReadAfterFailure: result.actualStateReadAfterFailure,
+        ...(result.beforeFingerprint
+          ? { beforeFingerprintHash: result.beforeFingerprint.hash }
+          : {}),
+        ...(result.afterFingerprint ? { afterFingerprintHash: result.afterFingerprint.hash } : {}),
+        ...(result.connectivityDiff ? { connectivityDiff: result.connectivityDiff } : {}),
+        report: result.report,
+        ...(result.transactionId ? { transactionId: result.transactionId } : {}),
+        ...(result.transactionState ? { transactionState: result.transactionState } : {}),
+        ...(result.errorCode ? { errorCode: result.errorCode } : {}),
+        ...(result.error ? { error: result.error } : {}),
       };
     },
   });
