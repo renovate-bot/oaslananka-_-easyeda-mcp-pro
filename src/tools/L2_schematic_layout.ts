@@ -31,6 +31,11 @@ import {
   gatherLivePlacementCheck,
   type LivePlacementCandidateInput,
 } from '../schematic-model/live-placement-check.js';
+import {
+  gatherLiveLayoutAutofixPreview,
+  type GatherLiveLayoutAutofixPreviewOptions,
+} from '../schematic-model/live-layout-autofix.js';
+import type { LayoutAutofixAllowlist } from '../layout/autofix.js';
 import { type ToolContext, type ToolDefinition } from './types.js';
 
 const boundsSchema = z.object({
@@ -335,6 +340,73 @@ const placementCheckOutputSchema = z.object({
   candidate: placementCandidateSchema.optional(),
   check: placementCheckResultSchema.optional(),
   rationale: z.array(z.string()).optional(),
+});
+
+const autofixPrimitiveTypeSchema = z.enum([
+  'component',
+  'text',
+  'label',
+  'annotation',
+  'section-box',
+  'section-title',
+  'wire',
+  'power-symbol',
+  'no-connect',
+]);
+
+const autofixPropertySchema = z.enum(['position', 'bounds']);
+
+const autofixAllowlistSchema = z.object({
+  primitiveTypes: z.array(autofixPrimitiveTypeSchema),
+  properties: z.array(autofixPropertySchema),
+});
+
+const autofixPointOrBoundsSchema = z.union([
+  z.object({ x: z.number(), y: z.number() }),
+  boundsSchema,
+]);
+
+const autofixViolationSchema = z.object({
+  id: z.string(),
+  code: z.enum([
+    'TITLE_BLOCK_OVERLAP',
+    'PAGE_BOUNDARY_OVERFLOW',
+    'COMPONENT_OVERLAP',
+    'TEXT_OVERLAP',
+    'SECTION_BOX_TOO_SMALL',
+  ]),
+  primitiveIds: z.array(z.string()),
+  message: z.string(),
+});
+
+const autofixMoveSchema = z.object({
+  id: z.string(),
+  primitiveId: z.string(),
+  primitiveType: autofixPrimitiveTypeSchema,
+  property: autofixPropertySchema,
+  from: autofixPointOrBoundsSchema,
+  to: autofixPointOrBoundsSchema,
+  reason: z.string(),
+  expectedQaImprovement: z.string(),
+  resolvesViolationIds: z.array(z.string()),
+});
+
+const autofixReportSchema = z.object({
+  fixed: z.array(z.string()),
+  skipped: z.array(z.object({ violationId: z.string(), reason: z.string() })),
+  remaining: z.array(z.string()),
+});
+
+const layoutAutofixOutputSchema = z.object({
+  projectId: z.string(),
+  mode: z.literal('preview'),
+  requiresConfirmWrite: z.literal(true),
+  violations: z.array(autofixViolationSchema),
+  moves: z.array(autofixMoveSchema),
+  report: autofixReportSchema,
+  allowlist: autofixAllowlistSchema,
+  primitiveCount: z.number().int().nonnegative(),
+  unavailablePrimitiveIds: z.array(z.string()),
 });
 
 const functionalLayoutOutputSchema = z.object({
@@ -1038,6 +1110,64 @@ export function registerSchematicLayoutTools(
         minimumClearance: values.minimumClearance,
         excludePrimitiveIds: values.excludePrimitiveIds,
       });
+    },
+  });
+
+  registry.register({
+    name: 'easyeda_schematic_layout_autofix',
+    title: 'Preview cosmetic schematic layout autofix moves',
+    description:
+      'Detect title-block overlap, page-boundary overflow, and component-overlap violations from ' +
+      'real rendered bounds, and propose cosmetic-only moves that resolve them. Read-only preview ' +
+      'only (requiresConfirmWrite=true, no writes) -- confirmWrite apply with connectivity-fingerprint ' +
+      'rollback is tracked separately (#273).',
+    profile: 'pro',
+    evidence: ['runtime-probe', 'inferred'],
+    risk: 'low',
+    confirmWrite: false,
+    group: 'workflows',
+    version: '1.0.0',
+    annotations: {
+      readOnlyHint: true,
+      idempotentHint: true,
+    },
+    inputSchema: z.object({
+      projectId: z.string().min(1),
+      allowlist: z
+        .object({
+          primitiveTypes: z.array(autofixPrimitiveTypeSchema).min(1).optional(),
+          properties: z.array(autofixPropertySchema).min(1).optional(),
+        })
+        .optional(),
+      hardKeepouts: z.array(placementConstraintRegionSchema).optional(),
+      reservedRegions: z.array(placementConstraintRegionSchema).optional(),
+      minimumClearance: z.number().nonnegative().optional(),
+      maxMoves: z.number().int().positive().optional(),
+    }),
+    outputSchema: layoutAutofixOutputSchema,
+    handler: async (ctx: ToolContext, params: unknown) => {
+      const values = params as {
+        projectId: string;
+        allowlist?: Partial<LayoutAutofixAllowlist>;
+        hardKeepouts?: GatherLiveLayoutAutofixPreviewOptions['hardKeepouts'];
+        reservedRegions?: GatherLiveLayoutAutofixPreviewOptions['callerReservedRegions'];
+        minimumClearance?: number;
+        maxMoves?: number;
+      };
+      const { preview, primitiveCount, unavailablePrimitiveIds } =
+        await gatherLiveLayoutAutofixPreview(ctx, values.projectId, {
+          allowlist: values.allowlist,
+          hardKeepouts: values.hardKeepouts,
+          callerReservedRegions: values.reservedRegions,
+          minimumClearance: values.minimumClearance,
+          maxMoves: values.maxMoves,
+        });
+      return {
+        projectId: values.projectId,
+        ...preview,
+        primitiveCount,
+        unavailablePrimitiveIds,
+      };
     },
   });
 }
