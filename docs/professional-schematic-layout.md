@@ -86,6 +86,32 @@ encodes the workflow above as a deterministic contract, tested for equivalence
 across Claude Code, Codex, and Antigravity distributions
 (`tests/unit/professional-layout/skill-distribution.test.ts`).
 
+## What MCP enforces vs. what is guidance only
+
+The skill is prompt text — an agent that ignores it still has working tools.
+Know which policies a tool call actually refuses to violate, and which ones
+depend on the agent following the workflow:
+
+| Policy                                 | Enforcement                                                                                                                                                                                      |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `TITLE_BLOCK_KEEP_OUT`                 | **MCP-enforced.** `easyeda_schematic_check_placement` / `easyeda_schematic_plan_layout` treat the title block and page border as hard keep-outs that reject a candidate — never a score penalty. |
+| `RENDERED_BOUNDS_ONLY`                 | **MCP-enforced.** Placement and QA math is computed from live rendered/combined bounds (`easyeda_schematic_primitive_bounds`), not component origin points or agent estimates.                   |
+| Missing-geometry fail-safe             | **MCP-enforced.** `resolveProfessionalLayoutTemplate` and the placement tools return `LAYOUT_GEOMETRY_REQUIRED` / an error instead of guessed coordinates when sheet geometry is unavailable.    |
+| Template catalog structure             | **MCP-enforced.** `validateProfessionalLayoutTemplateCatalog` throws at build time if a template's numeric defaults, keep-outs, or support rules are malformed.                                  |
+| Connectivity fingerprint comparison    | **MCP-enforced.** `easyeda_schematic_connectivity_fingerprint` computes real pin/net/wire membership from live state — the comparison itself isn't agent-judged.                                 |
+| `PAGE_GEOMETRY_REQUIRED` step ordering | **Guidance only.** No tool refuses to place a component just because sheet info wasn't read first this session.                                                                                  |
+| `NO_BLIND_RETRY`                       | **Guidance only.** A timeout doesn't stop an agent from retrying; the skill instructs re-checking real state first, but no tool enforces it.                                                     |
+| `STAGED_PREVIEW_READBACK_QA` cadence   | **Guidance only.** Nothing forces a readback or a QA run between batches — it's a workflow discipline.                                                                                           |
+| Wiring only after placement QA passes  | **Guidance only.** Wire tools don't check `easyeda_schematic_layout_qa` results before running.                                                                                                  |
+| `NO_SAVE_WITH_CRITICALS`               | **Guidance only.** `easyeda_project_save` does not read `commitBlocked` from a prior QA run — nothing server-side prevents saving with critical layout issues outstanding.                       |
+
+This is why the skill exists as a separate artifact rather than being folded
+into tool descriptions: the deterministic primitives (#243/#244/#271/#272/#273/#274)
+make correct layout _possible_ and make certain violations _impossible to hide_,
+but the workflow discipline that gets an agent to call them in the right order,
+at the right cadence, and to stop before saving is enforced by the skill
+contract, not by the tools themselves.
+
 ## Related
 
 - [Schematic layout benchmarks](/schematic-layout-benchmarks) — how to
