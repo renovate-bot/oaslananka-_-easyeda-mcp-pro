@@ -1,13 +1,24 @@
 import { type ToolContext } from '../tools/types.js';
 import { gatherLivePrimitiveBounds } from './live-primitive-bounds.js';
 import { buildEngineSheetGeometry } from './live-functional-layout.js';
+import { gatherLiveSchematicSnapshot } from './live-snapshot.js';
+import { buildSchematicModel } from './model-builder.js';
 import {
+  createConnectivityFingerprint,
+  type ConnectivityFingerprint,
+  type ConnectivityFingerprintDiff,
+} from './connectivity-fingerprint.js';
+import {
+  applyLayoutAutofix,
   previewLayoutAutofix,
+  LayoutAutofixConnectivityError,
   type LayoutAutofixAllowlist,
   type LayoutAutofixPreview,
   type LayoutAutofixPrimitive,
+  type LayoutAutofixReport,
 } from '../layout/autofix.js';
 import type { PlacementConstraintRegion } from '../layout/placement.js';
+import { getGlobalTransactionManager } from '../transactions/manager.js';
 
 export interface GatherLiveLayoutAutofixPreviewOptions {
   allowlist?: Partial<LayoutAutofixAllowlist>;
@@ -82,4 +93,127 @@ export async function gatherLiveLayoutAutofixPreview(
   });
 
   return { preview, primitiveCount: primitives.length, unavailablePrimitiveIds };
+}
+
+export interface ApplyLiveLayoutAutofixOptions extends GatherLiveLayoutAutofixPreviewOptions {
+  /** Compute and return the preview only -- never opens a transaction or writes. */
+  dryRun?: boolean;
+  batchSize?: number;
+}
+
+export interface ApplyLiveLayoutAutofixResult {
+  preview: LayoutAutofixPreview;
+  primitiveCount: number;
+  unavailablePrimitiveIds: string[];
+  applied: boolean;
+  batchesVerified: number;
+  actualStateReadAfterFailure: boolean;
+  beforeFingerprint?: ConnectivityFingerprint;
+  afterFingerprint?: ConnectivityFingerprint;
+  connectivityDiff?: ConnectivityFingerprintDiff;
+  report: LayoutAutofixReport;
+  transactionId?: string;
+  transactionState?: string;
+  errorCode?: string;
+  error?: string;
+}
+
+async function readLiveConnectivityFingerprint(
+  ctx: ToolContext,
+  projectId: string,
+): Promise<ConnectivityFingerprint> {
+  const snapshot = await gatherLiveSchematicSnapshot(ctx, projectId);
+  const model = buildSchematicModel(snapshot);
+  return createConnectivityFingerprint(model);
+}
+
+/**
+ * Recomputes the autofix preview against current live state, then -- unless
+ * dryRun is set or there are no moves to make -- applies it through the
+ * shared global TransactionManager with batch-by-batch connectivity-
+ * fingerprint verification (applyLayoutAutofix). Any connectivity change,
+ * write failure, or readback instability rolls the whole transaction back;
+ * this function never throws for those cases, it reports them in the
+ * returned errorCode/error fields instead (mirroring handleSchematicBatchWrite's
+ * catch-and-report convention).
+ */
+export async function applyLiveLayoutAutofix(
+  ctx: ToolContext,
+  projectId: string,
+  options: ApplyLiveLayoutAutofixOptions = {},
+): Promise<ApplyLiveLayoutAutofixResult> {
+  const { preview, primitiveCount, unavailablePrimitiveIds } = await gatherLiveLayoutAutofixPreview(
+    ctx,
+    projectId,
+    options,
+  );
+
+  if (options.dryRun) {
+    return {
+      preview,
+      primitiveCount,
+      unavailablePrimitiveIds,
+      applied: false,
+      batchesVerified: 0,
+      actualStateReadAfterFailure: false,
+      report: preview.report,
+    };
+  }
+
+  const transactionManager = getGlobalTransactionManager();
+  try {
+    const result = await applyLayoutAutofix(preview, {
+      confirmWrite: true,
+      documentId: projectId,
+      transactionManager,
+      bridge: ctx.bridge,
+      readConnectivity: () => readLiveConnectivityFingerprint(ctx, projectId),
+      ...(options.batchSize !== undefined ? { batchSize: options.batchSize } : {}),
+    });
+    return {
+      preview,
+      primitiveCount,
+      unavailablePrimitiveIds,
+      applied: result.applied,
+      batchesVerified: result.batchesVerified,
+      actualStateReadAfterFailure: result.actualStateReadAfterFailure,
+      ...(result.beforeFingerprint ? { beforeFingerprint: result.beforeFingerprint } : {}),
+      ...(result.afterFingerprint ? { afterFingerprint: result.afterFingerprint } : {}),
+      ...(result.connectivityDiff ? { connectivityDiff: result.connectivityDiff } : {}),
+      report: result.report,
+      ...(result.transaction ? { transactionId: result.transaction.id } : {}),
+      ...(result.transaction ? { transactionState: result.transaction.state } : {}),
+    };
+  } catch (error) {
+    if (error instanceof LayoutAutofixConnectivityError) {
+      const { result } = error;
+      return {
+        preview,
+        primitiveCount,
+        unavailablePrimitiveIds,
+        applied: result.applied,
+        batchesVerified: result.batchesVerified,
+        actualStateReadAfterFailure: result.actualStateReadAfterFailure,
+        ...(result.beforeFingerprint ? { beforeFingerprint: result.beforeFingerprint } : {}),
+        ...(result.afterFingerprint ? { afterFingerprint: result.afterFingerprint } : {}),
+        ...(result.connectivityDiff ? { connectivityDiff: result.connectivityDiff } : {}),
+        report: result.report,
+        ...(result.transaction ? { transactionId: result.transaction.id } : {}),
+        ...(result.transaction ? { transactionState: result.transaction.state } : {}),
+        errorCode: 'AUTOFIX_ROLLED_BACK',
+        error: error.message,
+      };
+    }
+    return {
+      preview,
+      primitiveCount,
+      unavailablePrimitiveIds,
+      applied: false,
+      batchesVerified: 0,
+      actualStateReadAfterFailure: false,
+      report: preview.report,
+      errorCode: 'AUTOFIX_APPLY_FAILED',
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
 }

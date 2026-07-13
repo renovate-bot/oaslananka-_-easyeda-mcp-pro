@@ -91,6 +91,7 @@ These tools are profile-gated. Set the `TOOL_PROFILE` environment variable to en
 | `easyeda_schematic_create_net_port`                | `core`  | `medium` | Place a hierarchical net port (off-sheet connector) on the schematic. Net ports create named connections that span multiple schematic sheets, appearing as real SCH_Net entries in the netlist.                                                                                                                                  |
 | `easyeda_schematic_delete_primitive`               | `core`  | `medium` | Delete components, wires, or other drawing objects from the schematic by their primitive UUIDs.                                                                                                                                                                                                                                  |
 | `easyeda_schematic_layout_autofix`                 | `pro`   | `low`    | Detect title-block overlap, page-boundary overflow, and component-overlap violations from real rendered bounds, and propose cosmetic-only moves that resolve them. Read-only preview only (requiresConfirmWrite=true, no writes) -- confirmWrite apply with connectivity-fingerprint rollback is tracked separately (#273).      |
+| `easyeda_schematic_layout_autofix_apply`           | `pro`   | `high`   | Apply the layout-autofix cosmetic moves in a snapshot-backed transaction, re-verifying a connectivity fingerprint after every write batch. Any unintended electrical change or write failure rolls the transaction back and is reported, never thrown. dryRun:true previews only.                                                |
 | `easyeda_schematic_layout_qa`                      | `pro`   | `low`    | Run a normalized post-write QA pass combining runtime DRC/ERC, expected component/pin topology, rendered primitive bounds, title-block and page constraints, wiring/grouping checks, and connectivity fingerprints, with optional full-page visual evidence. Critical geometry or connectivity findings always block commit.     |
 | `easyeda_schematic_modify_primitive`               | `core`  | `medium` | Safely modify a schematic primitive while preserving omitted fields. With transactionId and projectId, capture before/after snapshots and automatically restore the prior state if the write or post-write read fails. Component moves keep connected wires attached.                                                            |
 | `easyeda_schematic_net_detail`                     | `core`  | `low`    | Get full details for a specific net in the schematic including all connected pins and components.                                                                                                                                                                                                                                |
@@ -2902,6 +2903,57 @@ Returns a JSON object matching the schema:
   allowlist: object;
   primitiveCount: number;
   unavailablePrimitiveIds: string[];
+}
+```
+
+---
+
+## `easyeda_schematic_layout_autofix_apply`
+
+**Profile:** `pro` | **Risk Level:** `high`
+
+> Apply the layout-autofix cosmetic moves in a snapshot-backed transaction, re-verifying a connectivity fingerprint after every write batch. Any unintended electrical change or write failure rolls the transaction back and is reported, never thrown. dryRun:true previews only.
+
+### Input Parameters
+
+| Parameter          | Type                  | Required | Description                                                                   |
+| ------------------ | --------------------- | -------- | ----------------------------------------------------------------------------- |
+| `projectId`        | `string`              | Yes      |                                                                               |
+| `allowlist`        | `object (optional)`   | No       |                                                                               |
+| `hardKeepouts`     | `object[] (optional)` | No       |                                                                               |
+| `reservedRegions`  | `object[] (optional)` | No       |                                                                               |
+| `minimumClearance` | `number (optional)`   | No       |                                                                               |
+| `maxMoves`         | `number (optional)`   | No       |                                                                               |
+| `batchSize`        | `number (optional)`   | No       |                                                                               |
+| `dryRun`           | `boolean`             | Yes      |                                                                               |
+| `confirmWrite`     | `'true'`              | Yes      | Must be the literal boolean true (not the string "true") to allow this write. |
+
+### Output Format
+
+Returns a JSON object matching the schema:
+
+```ts
+{
+  projectId: string;
+  dryRun: boolean;
+  mode: 'preview';
+  requiresConfirmWrite: 'true';
+  violations: object[];
+  moves: object[];
+  allowlist: object;
+  primitiveCount: number;
+  unavailablePrimitiveIds: string[];
+  applied: boolean;
+  batchesVerified: number;
+  actualStateReadAfterFailure: boolean;
+  beforeFingerprintHash: string (optional);
+  afterFingerprintHash: string (optional);
+  connectivityDiff: object (optional);
+  report: object;
+  transactionId: string (optional);
+  transactionState: 'active' | 'validating' | 'validated' | 'committed' | 'rolling-back' | 'rolled-back' | 'failed' | 'expired' (optional);
+  errorCode: string (optional);
+  error: string (optional);
 }
 ```
 
