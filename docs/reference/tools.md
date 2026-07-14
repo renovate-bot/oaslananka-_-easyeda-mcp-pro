@@ -549,13 +549,13 @@ Returns a JSON object matching the schema:
 
 ### Input Parameters
 
-| Parameter | Type                | Required | Description |
-| --------- | ------------------- | -------- | ----------- |
-| `left`    | `number`            | Yes      |             |
-| `right`   | `number`            | Yes      |             |
-| `top`     | `number`            | Yes      |             |
-| `bottom`  | `number`            | Yes      |             |
-| `tabId`   | `string (optional)` | No       |             |
+| Parameter | Type                | Required | Description                                            |
+| --------- | ------------------- | -------- | ------------------------------------------------------ |
+| `left`    | `number`            | Yes      | First horizontal edge in document/canvas coordinates.  |
+| `right`   | `number`            | Yes      | Second horizontal edge; either edge order is accepted. |
+| `top`     | `number`            | Yes      | First vertical edge in document/canvas coordinates.    |
+| `bottom`  | `number`            | Yes      | Second vertical edge; either edge order is accepted.   |
+| `tabId`   | `string (optional)` | No       |                                                        |
 
 ### Output Format
 

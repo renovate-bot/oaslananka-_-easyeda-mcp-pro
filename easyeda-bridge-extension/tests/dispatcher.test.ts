@@ -485,6 +485,81 @@ describe('createDispatcher', () => {
     ]);
   });
 
+  it('canvas.captureRegion normalizes bounds before capturing the settled viewport', async () => {
+    const callOrder: string[] = [];
+    const zoomToRegion = vi.fn(async () => {
+      callOrder.push('zoom');
+      return true;
+    });
+    const getCurrentRenderedAreaImage = vi.fn(async () => {
+      callOrder.push('capture');
+      return new Blob(['png'], { type: 'image/png' });
+    });
+    const dispatcher = createDispatcher(
+      makeToolkit({
+        DMT_EditorControl: { zoomToRegion, getCurrentRenderedAreaImage },
+      }),
+    );
+
+    const result = (await dispatcher.dispatch('canvas.captureRegion', {
+      left: 100,
+      right: 0,
+      top: 0,
+      bottom: 50,
+      tabId: 'tab-1',
+    })) as { base64: string; fileName: string; byteLength: number };
+
+    expect(zoomToRegion).toHaveBeenCalledWith(0, 100, 50, 0, 'tab-1');
+    expect(getCurrentRenderedAreaImage).toHaveBeenCalledWith('tab-1');
+    expect(callOrder).toEqual(['zoom', 'capture']);
+    expect(result).toMatchObject({
+      base64: Buffer.from('png').toString('base64'),
+      fileName: 'capture-region.png',
+      byteLength: 3,
+    });
+  });
+
+  it('canvas.captureRegion rejects zero-area bounds without touching the editor', async () => {
+    const zoomToRegion = vi.fn(async () => true);
+    const getCurrentRenderedAreaImage = vi.fn(async () => new Blob(['png']));
+    const dispatcher = createDispatcher(
+      makeToolkit({
+        DMT_EditorControl: { zoomToRegion, getCurrentRenderedAreaImage },
+      }),
+    );
+
+    await expect(
+      dispatcher.dispatch('canvas.captureRegion', {
+        left: 10,
+        right: 10,
+        top: 20,
+        bottom: 0,
+      }),
+    ).rejects.toMatchObject({ code: 'INVALID_PARAMS' });
+    expect(zoomToRegion).not.toHaveBeenCalled();
+    expect(getCurrentRenderedAreaImage).not.toHaveBeenCalled();
+  });
+
+  it('canvas.captureRegion does not capture when EasyEDA rejects the zoom', async () => {
+    const zoomToRegion = vi.fn(async () => false);
+    const getCurrentRenderedAreaImage = vi.fn(async () => new Blob(['png']));
+    const dispatcher = createDispatcher(
+      makeToolkit({
+        DMT_EditorControl: { zoomToRegion, getCurrentRenderedAreaImage },
+      }),
+    );
+
+    await expect(
+      dispatcher.dispatch('canvas.captureRegion', {
+        left: 0,
+        right: 10,
+        top: 10,
+        bottom: 0,
+      }),
+    ).rejects.toMatchObject({ code: 'EASYEDA_API_ERROR' });
+    expect(getCurrentRenderedAreaImage).not.toHaveBeenCalled();
+  });
+
   it('system.getStatus reports capabilities equal to methodList and the build id', async () => {
     const dispatcher = createDispatcher(makeToolkit({}));
     const status = (await dispatcher.dispatch('system.getStatus', {})) as {
