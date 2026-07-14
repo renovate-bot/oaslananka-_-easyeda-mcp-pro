@@ -99,6 +99,26 @@ function readPngDimensions(base64: string): { width: number; height: number } | 
   return width > 0 && height > 0 ? { width, height } : undefined;
 }
 
+interface CanvasRegion {
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+}
+
+function normalizeCanvasRegion(region: CanvasRegion): CanvasRegion {
+  const normalized = {
+    left: Math.min(region.left, region.right),
+    right: Math.max(region.left, region.right),
+    top: Math.max(region.top, region.bottom),
+    bottom: Math.min(region.top, region.bottom),
+  };
+  if (normalized.left === normalized.right || normalized.top === normalized.bottom) {
+    throw new Error('Capture region must have non-zero width and height.');
+  }
+  return normalized;
+}
+
 function registerVisualTools(
   registry: { register: (def: ToolDefinition) => void },
   _config: EnvConfig,
@@ -161,10 +181,10 @@ function registerVisualTools(
       idempotentHint: false,
     },
     inputSchema: z.object({
-      left: z.number(),
-      right: z.number(),
-      top: z.number(),
-      bottom: z.number(),
+      left: z.number().describe('First horizontal edge in document/canvas coordinates.'),
+      right: z.number().describe('Second horizontal edge; either edge order is accepted.'),
+      top: z.number().describe('First vertical edge in document/canvas coordinates.'),
+      bottom: z.number().describe('Second vertical edge; either edge order is accepted.'),
       tabId: z.string().optional(),
     }),
     outputSchema: captureOutputSchema,
@@ -179,11 +199,9 @@ function registerVisualTools(
         tabId?: string;
       };
       try {
+        const region = normalizeCanvasRegion({ left, right, top, bottom });
         const result = await ctx.bridge.call('canvas.captureRegion', {
-          left,
-          right,
-          top,
-          bottom,
+          ...region,
           tabId,
         });
         return buildCaptureOutput(result);

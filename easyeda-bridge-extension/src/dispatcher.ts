@@ -565,6 +565,64 @@ async function normalizeBinaryResultSafely(
   return normalized;
 }
 
+interface CanvasRegion {
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+}
+
+function normalizeCanvasRegion(value: CanvasRegion): CanvasRegion {
+  const coordinates = [value.left, value.right, value.top, value.bottom];
+  if (!coordinates.every(Number.isFinite)) {
+    throw newBridgeError(
+      'INVALID_PARAMS',
+      'Capture region coordinates must be finite numbers.',
+      'Provide finite left, right, top, and bottom document coordinates.',
+    );
+  }
+
+  const region = {
+    left: Math.min(value.left, value.right),
+    right: Math.max(value.left, value.right),
+    top: Math.max(value.top, value.bottom),
+    bottom: Math.min(value.top, value.bottom),
+  };
+  if (region.left === region.right || region.top === region.bottom) {
+    throw newBridgeError(
+      'INVALID_PARAMS',
+      'Capture region must have non-zero width and height.',
+      'Expand the bounds around the component before capturing it.',
+    );
+  }
+  return region;
+}
+
+async function waitForCanvasPaint(): Promise<void> {
+  const requestFrame = (globalThis as { requestAnimationFrame?: (callback: () => void) => number })
+    .requestAnimationFrame;
+  if (typeof requestFrame === 'function') {
+    await new Promise<void>((resolve) => {
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        resolve();
+      };
+      // A minimized/background Electron window can suspend animation frames.
+      // Keep capture bounded instead of waiting indefinitely for repaint.
+      const timeout = setTimeout(finish, 75);
+      requestFrame.call(globalThis, () => requestFrame.call(globalThis, finish));
+    });
+    return;
+  }
+
+  // Vitest/Node and older extension shells may not expose requestAnimationFrame.
+  // A macrotask still lets an asynchronously scheduled canvas update settle.
+  await new Promise<void>((resolve) => setTimeout(resolve, 0));
+}
+
 function withClassNameVariants(paths: string[]): string[] {
   const variants: string[] = [];
   for (const path of paths) {
@@ -4276,14 +4334,24 @@ async function dispatch(method: string, params: Record<string, unknown> = {}): P
       return normalizeBinaryResultSafely(blob, 'capture.png');
     }
     case 'canvas.captureRegion': {
-      const { left, right, top, bottom, tabId } = params as {
-        left: number;
-        right: number;
-        top: number;
-        bottom: number;
-        tabId?: string;
-      };
-      await callFirst(['DMT_EditorControl.zoomToRegion'], left, right, top, bottom, tabId);
+      const { tabId } = params as { tabId?: string };
+      const region = normalizeCanvasRegion(params as unknown as CanvasRegion);
+      const zoomed = await callFirst(
+        ['DMT_EditorControl.zoomToRegion'],
+        region.left,
+        region.right,
+        region.top,
+        region.bottom,
+        tabId,
+      );
+      if (zoomed === false) {
+        throw newBridgeError(
+          'EASYEDA_API_ERROR',
+          'EasyEDA could not zoom to the requested capture region.',
+          'Verify that the target tab is open and the region uses document/canvas coordinates.',
+        );
+      }
+      await waitForCanvasPaint();
       const blob = await callFirst(['DMT_EditorControl.getCurrentRenderedAreaImage'], tabId);
       return normalizeBinaryResultSafely(blob, 'capture-region.png');
     }

@@ -109,7 +109,7 @@ describe('Visual Tools', () => {
   });
 
   describe('easyeda_canvas_capture_region', () => {
-    it('zooms to the region and returns the captured image', async () => {
+    it('normalizes the region bounds and returns the captured image', async () => {
       const tool = registry.get('easyeda_canvas_capture_region');
       expect(tool).toBeDefined();
 
@@ -120,8 +120,8 @@ describe('Visual Tools', () => {
       });
 
       const result = await tool?.handler(context, {
-        left: 0,
-        right: 100,
+        left: 100,
+        right: 0,
         top: 0,
         bottom: 50,
         tabId: 'tab-1',
@@ -130,11 +130,29 @@ describe('Visual Tools', () => {
       expect(bridgeCall).toHaveBeenCalledWith('canvas.captureRegion', {
         left: 0,
         right: 100,
-        top: 0,
-        bottom: 50,
+        top: 50,
+        bottom: 0,
         tabId: 'tab-1',
       });
       expect(result).toMatchObject({ captured: true, image_base64: 'cmVnaW9uLWJ5dGVz' });
+    });
+
+    it('rejects a zero-area region before calling the bridge', async () => {
+      const tool = registry.get('easyeda_canvas_capture_region');
+
+      const result = await tool?.handler(context, {
+        left: 10,
+        right: 10,
+        top: 20,
+        bottom: 0,
+      });
+
+      expect(bridgeCall).not.toHaveBeenCalled();
+      expect(result).toMatchObject({
+        captured: false,
+        not_available: true,
+        error: 'Capture region must have non-zero width and height.',
+      });
     });
 
     it('reports not_available on bridge error', async () => {
