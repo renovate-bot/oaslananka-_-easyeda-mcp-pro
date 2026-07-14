@@ -96,6 +96,7 @@ const METHOD_LIST: readonly string[] = [
   'schematic.listRectangles',
   'schematic.modifyPrimitive',
   'schematic.placeComponent',
+  'schematic.primitiveBounds',
   'schematic.recreatePrimitiveSnapshot',
   'schematic.restorePrimitiveSnapshot',
   'schematic.searchDevice',
