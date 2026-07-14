@@ -92,7 +92,7 @@ jobs:
             node-version: '26'
           - os: windows-latest
             node-version: '24'
-          - os: macos-latest
+          - os: macos-26
             node-version: '24'
     runs-on: ${{ matrix.os }}
 
